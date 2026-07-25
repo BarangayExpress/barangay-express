@@ -25,6 +25,9 @@ type TrackingOrder = {
   in_transit_at: string | null;
   delivered_at: string | null;
   completed_at: string | null;
+  cancellation_reason: string | null;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
   pickup_latitude: number | null;
   pickup_longitude: number | null;
   dropoff_latitude: number | null;
@@ -147,6 +150,8 @@ const statusSteps = [
 
 function getStatusStyle(status: string | null) {
   switch (status) {
+    case "Cancelled":
+      return "bg-red-100 text-red-700";
     case "Accepted":
       return "bg-sky-100 text-sky-700";
     case "Heading to Pickup":
@@ -207,6 +212,12 @@ export default function TrackPage() {
   const [reviewSubmitted, setReviewSubmitted] = useState(false);
   const [reviewMessage, setReviewMessage] = useState("");
 
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelPhone, setCancelPhone] = useState("");
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
+  const [cancelMessage, setCancelMessage] = useState("");
+
   const previousStatusRef = useRef<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
@@ -246,6 +257,10 @@ export default function TrackPage() {
     setReviewComment("");
     setReviewSubmitted(false);
     setReviewMessage("");
+    setCancelModalOpen(false);
+    setCancelPhone("");
+    setCancelReason("");
+    setCancelMessage("");
 
     try {
       const response = await fetch(
@@ -404,6 +419,80 @@ export default function TrackPage() {
     }
   }
 
+  async function submitCancellation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!order || !["Pending", "Accepted"].includes(order.status || "")) {
+      return;
+    }
+
+    const normalizedPhone = cancelPhone.replace(/\D/g, "");
+
+    if (!/^09\d{9}$/.test(normalizedPhone)) {
+      setCancelMessage(
+        "Ilagay ang sender phone number sa 09XXXXXXXXX format."
+      );
+      return;
+    }
+
+    if (cancelReason.trim().length < 3) {
+      setCancelMessage("Pumili ng cancellation reason.");
+      return;
+    }
+
+    setCancelSubmitting(true);
+    setCancelMessage("");
+
+    try {
+      const response = await fetch("/api/bookings/cancel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          booking_no: order.booking_no,
+          sender_phone: normalizedPhone,
+          reason: cancelReason.trim(),
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || "Hindi ma-cancel ang booking.");
+      }
+
+      setOrder((currentOrder) =>
+        currentOrder
+          ? {
+              ...currentOrder,
+              status: "Cancelled",
+              cancellation_reason:
+                result.order?.cancellation_reason || cancelReason.trim(),
+              cancelled_by: result.order?.cancelled_by || "customer",
+              cancelled_at:
+                result.order?.cancelled_at || new Date().toISOString(),
+            }
+          : currentOrder
+      );
+
+      setRiderLocation(null);
+      previousStatusRef.current = "Cancelled";
+      showStatusToast("Cancelled");
+      setCancelModalOpen(false);
+      setCancelPhone("");
+      setCancelReason("");
+    } catch (error) {
+      setCancelMessage(
+        error instanceof Error
+          ? error.message
+          : "May error habang kinakansela ang booking."
+      );
+    } finally {
+      setCancelSubmitting(false);
+    }
+  }
+
   const riderLocationIsFresh =
     riderLocation &&
     Date.now() - new Date(riderLocation.updated_at).getTime() < 60_000;
@@ -540,7 +629,7 @@ export default function TrackPage() {
             </div>
           )}
 
-          {order && !isLoading && (
+          {order && !isLoading && order.status !== "Cancelled" && (
             <section className="mb-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60">
               <div className="flex flex-col gap-3 border-b border-blue-100 bg-gradient-to-r from-blue-950 to-blue-700 px-6 py-6 text-white sm:flex-row sm:items-center sm:justify-between">
                 <div>
@@ -641,6 +730,48 @@ export default function TrackPage() {
             </section>
           )}
 
+          {order && !isLoading && order.status === "Cancelled" && (
+            <section className="mb-8 overflow-hidden rounded-[2rem] border border-red-200 bg-white shadow-xl shadow-red-100/60">
+              <div className="bg-gradient-to-r from-red-950 to-red-700 px-6 py-7 text-white md:px-8">
+                <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-red-200">
+                  Cancellation history
+                </p>
+                <h2 className="mt-2 text-3xl font-extrabold">
+                  Booking cancelled
+                </h2>
+                <p className="mt-2 text-red-100">
+                  Hindi na aktibo ang delivery request na ito.
+                </p>
+              </div>
+
+              <div className="grid gap-4 p-6 md:grid-cols-3 md:p-8">
+                <div className="rounded-2xl border border-red-100 bg-red-50 p-5 md:col-span-2">
+                  <p className="text-xs font-extrabold uppercase tracking-wider text-red-600">
+                    Cancellation reason
+                  </p>
+                  <p className="mt-2 font-semibold leading-7 text-red-950">
+                    {order.cancellation_reason || "No reason recorded."}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                    Details
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-700">
+                    Cancelled by:{" "}
+                    <span className="font-extrabold capitalize">
+                      {order.cancelled_by || "Not recorded"}
+                    </span>
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-700">
+                    Time: {formatDate(order.cancelled_at)}
+                  </p>
+                </div>
+              </div>
+            </section>
+          )}
+
           {order && !isLoading && (
             <div className="grid items-start gap-8 lg:grid-cols-[1fr_320px]">
               {/* Progress Timeline */}
@@ -676,6 +807,18 @@ export default function TrackPage() {
                     Narito ang kasalukuyang galaw ng iyong delivery.
                   </p>
 
+                  {order.status === "Cancelled" ? (
+                    <div className="mt-8 rounded-3xl border border-red-200 bg-red-50 p-6 text-center">
+                      <div className="text-5xl">❌</div>
+                      <h4 className="mt-4 text-xl font-extrabold text-red-950">
+                        Delivery workflow stopped
+                      </h4>
+                      <p className="mt-2 leading-7 text-red-800">
+                        Ang booking na ito ay kinansela at hindi na magpapatuloy
+                        sa susunod na delivery steps.
+                      </p>
+                    </div>
+                  ) : (
                   <div className="mt-8">
                     {statusSteps.map((step, index) => {
                       const isCompleted = index < currentStepIndex;
@@ -776,6 +919,7 @@ export default function TrackPage() {
                       );
                     })}
                   </div>
+                  )}
                 </div>
               </section>
 
@@ -834,6 +978,56 @@ export default function TrackPage() {
                     </div>
                   </div>
                 </div>
+
+                {["Pending", "Accepted"].includes(order.status || "") && (
+                  <div className="rounded-3xl border border-red-200 bg-red-50 p-6">
+                    <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-red-600">
+                      Customer cancellation
+                    </p>
+                    <h3 className="mt-1 text-xl font-extrabold text-red-950">
+                      Need to cancel?
+                    </h3>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-red-800">
+                      Maaari lamang mag-cancel habang Pending o Accepted pa ang
+                      booking.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCancelMessage("");
+                        setCancelModalOpen(true);
+                      }}
+                      className="mt-5 w-full rounded-2xl bg-red-700 px-5 py-3 font-extrabold text-white transition hover:bg-red-800"
+                    >
+                      Cancel This Booking
+                    </button>
+                  </div>
+                )}
+
+                {order.status &&
+                  !["Pending", "Accepted", "Cancelled", "Completed"].includes(
+                    order.status
+                  ) && (
+                    <div className="rounded-3xl border border-amber-200 bg-amber-50 p-6">
+                      <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-amber-700">
+                        Cancellation locked
+                      </p>
+                      <h3 className="mt-1 text-xl font-extrabold text-amber-950">
+                        🔒 Cancellation is no longer available
+                      </h3>
+                      <p className="mt-2 text-sm font-semibold leading-6 text-amber-900">
+                        Nagsimula na ang rider sa delivery process. Kapag
+                        Picked Up na ang item, maaaring nag-abono na rin ang
+                        rider kaya hindi na puwedeng i-cancel online.
+                      </p>
+                      <a
+                        href="tel:09150613802"
+                        className="mt-5 block rounded-2xl bg-amber-700 px-5 py-3 text-center font-extrabold text-white transition hover:bg-amber-800"
+                      >
+                        Contact Barangay Express
+                      </a>
+                    </div>
+                  )}
 
                 <div className="rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-50 to-sky-50 p-6">
                   <h3 className="font-extrabold text-blue-950">
@@ -1010,6 +1204,131 @@ export default function TrackPage() {
             )}
           </div>
         </section>
+      )}
+
+      {cancelModalOpen && order && (
+        <div
+          className="fixed inset-0 z-[1500] flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Cancel booking"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !cancelSubmitting) {
+              setCancelModalOpen(false);
+            }
+          }}
+        >
+          <form
+            onSubmit={submitCancellation}
+            className="w-full max-w-lg overflow-hidden rounded-[2rem] bg-white shadow-2xl"
+          >
+            <div className="bg-gradient-to-r from-red-950 to-red-700 px-6 py-6 text-white">
+              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-red-200">
+                Customer cancellation
+              </p>
+              <h2 className="mt-1 text-2xl font-extrabold">
+                Cancel {order.booking_no}
+              </h2>
+              <p className="mt-2 text-sm font-semibold text-red-100">
+                Kailangan ang sender phone number para ma-verify ang request.
+              </p>
+            </div>
+
+            <div className="space-y-5 p-6">
+              <label className="block">
+                <span className="mb-2 block text-sm font-extrabold text-slate-800">
+                  Sender phone number
+                </span>
+                <input
+                  required
+                  type="tel"
+                  value={cancelPhone}
+                  onChange={(event) => {
+                    setCancelPhone(
+                      event.target.value.replace(/\D/g, "").slice(0, 11)
+                    );
+                    setCancelMessage("");
+                  }}
+                  placeholder="09XXXXXXXXX"
+                  pattern="09[0-9]{9}"
+                  inputMode="numeric"
+                  maxLength={11}
+                  disabled={cancelSubmitting}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-bold outline-none transition focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-100 disabled:opacity-60"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-extrabold text-slate-800">
+                  Cancellation reason
+                </span>
+                <select
+                  required
+                  value={cancelReason}
+                  onChange={(event) => {
+                    setCancelReason(event.target.value);
+                    setCancelMessage("");
+                  }}
+                  disabled={cancelSubmitting}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 font-bold outline-none transition focus:border-red-500 focus:bg-white focus:ring-4 focus:ring-red-100 disabled:opacity-60"
+                >
+                  <option value="">Select a reason</option>
+                  <option value="I entered incorrect booking details.">
+                    Incorrect booking details
+                  </option>
+                  <option value="The delivery is no longer needed.">
+                    Delivery no longer needed
+                  </option>
+                  <option value="I created a duplicate booking.">
+                    Duplicate booking
+                  </option>
+                  <option value="The pickup or receiver is unavailable.">
+                    Pickup or receiver unavailable
+                  </option>
+                  <option value="I need to change the pickup or drop-off schedule.">
+                    Need to change schedule
+                  </option>
+                  <option value="Other customer-requested cancellation.">
+                    Other reason
+                  </option>
+                </select>
+              </label>
+
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold leading-6 text-amber-900">
+                Kapag Heading to Pickup o Picked Up na ang status, hindi na
+                maaaring i-cancel online upang maprotektahan ang rider sa
+                pamasahe at posibleng inabono sa order.
+              </div>
+
+              {cancelMessage && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm font-bold text-red-700">
+                  ⚠️ {cancelMessage}
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setCancelModalOpen(false)}
+                  disabled={cancelSubmitting}
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-4 font-extrabold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60"
+                >
+                  Keep Booking
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={cancelSubmitting}
+                  className="rounded-2xl bg-red-700 px-5 py-4 font-extrabold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {cancelSubmitting
+                    ? "Cancelling..."
+                    : "Confirm Cancellation"}
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
       )}
 
       {statusToast && (

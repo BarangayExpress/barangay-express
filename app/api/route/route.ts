@@ -1,281 +1,154 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { createClient as createServerClient } from "@/lib/supabase-server";
+import { NextRequest, NextResponse } from "next/server";
 
-type ReviewPayload = {
-  booking_no?: string;
-  rating?: number;
-  comment?: string | null;
+export const dynamic = "force-dynamic";
+
+type OsrmRoute = {
+  distance: number;
+  duration: number;
+  geometry: {
+    type: "LineString";
+    coordinates: [number, number][];
+  };
 };
 
-type ReviewRow = {
-  id: number;
-  order_id: number;
-  booking_no: string;
-  rider_id: string | null;
-  rating: number;
-  comment: string | null;
-  created_at: string;
+type OsrmResponse = {
+  code: string;
+  message?: string;
+  routes?: OsrmRoute[];
 };
 
-function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function readCoordinate(
+  request: NextRequest,
+  name: string,
+  minimum: number,
+  maximum: number
+) {
+  const rawValue = request.nextUrl.searchParams.get(name);
 
-  if (!supabaseUrl) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing.");
+  if (!rawValue) {
+    throw new Error(`Missing ${name}.`);
   }
 
-  if (!serviceRoleKey) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing.");
+  const value = Number(rawValue);
+
+  if (!Number.isFinite(value) || value < minimum || value > maximum) {
+    throw new Error(`Invalid ${name}.`);
   }
 
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
+  return value;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const serverSupabase = await createServerClient();
+    const startLatitude = readCoordinate(request, "start_lat", -90, 90);
+    const startLongitude = readCoordinate(request, "start_lng", -180, 180);
+    const endLatitude = readCoordinate(request, "end_lat", -90, 90);
+    const endLongitude = readCoordinate(request, "end_lng", -180, 180);
 
-    const {
-      data: { user },
-      error: userError,
-    } = await serverSupabase.auth.getUser();
+    const coordinatePath =
+      `${startLongitude},${startLatitude};` +
+      `${endLongitude},${endLatitude}`;
 
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Please log in.",
+    const osrmUrl =
+      `https://router.project-osrm.org/route/v1/driving/` +
+      `${coordinatePath}` +
+      `?alternatives=false&steps=false&overview=full&geometries=geojson`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10_000);
+
+    let response: Response;
+
+    try {
+      response = await fetch(osrmUrl, {
+        method: "GET",
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "Barangay-Express/1.0",
         },
-        { status: 401 }
-      );
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
     }
 
-    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-    const currentEmail = user.email?.trim().toLowerCase();
+    if (!response.ok) {
+      const responseText = await response.text();
 
-    if (!adminEmail || !currentEmail || currentEmail !== adminEmail) {
+      console.error("OSRM HTTP error:", {
+        status: response.status,
+        responseText,
+      });
+
       return NextResponse.json(
         {
           success: false,
-          error: "Forbidden. Admin access only.",
+          error: `Routing service returned HTTP ${response.status}.`,
         },
-        { status: 403 }
+        { status: 502 }
       );
     }
 
-    const supabaseAdmin = createAdminClient();
+    const result = (await response.json()) as OsrmResponse;
+    const firstRoute = result.routes?.[0];
 
-    const { data: reviewRows, error: reviewsError } =
-      await supabaseAdmin
-        .from("delivery_reviews")
-        .select(
-          "id, order_id, booking_no, rider_id, rating, comment, created_at"
-        )
-        .order("created_at", { ascending: false });
+    if (
+      result.code !== "Ok" ||
+      !firstRoute ||
+      firstRoute.geometry?.type !== "LineString" ||
+      !Array.isArray(firstRoute.geometry.coordinates) ||
+      firstRoute.geometry.coordinates.length < 2
+    ) {
+      console.error("OSRM route not found:", result);
 
-    if (reviewsError) {
-      throw new Error(reviewsError.message);
-    }
-
-    const reviews = (reviewRows || []) as ReviewRow[];
-
-    const riderIds = Array.from(
-      new Set(
-        reviews
-          .map((review) => review.rider_id)
-          .filter((value): value is string => Boolean(value))
-      )
-    );
-
-    const riderNameMap = new Map<string, string>();
-
-    if (riderIds.length > 0) {
-      const { data: riders, error: ridersError } = await supabaseAdmin
-        .from("rider_profiles")
-        .select("id, full_name")
-        .in("id", riderIds);
-
-      if (ridersError) {
-        throw new Error(ridersError.message);
-      }
-
-      (riders || []).forEach(
-        (rider: { id: string; full_name: string | null }) => {
-          riderNameMap.set(
-            rider.id,
-            rider.full_name || "Unnamed rider"
-          );
-        }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      reviews: reviews.map((review) => ({
-        ...review,
-        rider_name: review.rider_id
-          ? riderNameMap.get(review.rider_id) || "Unnamed rider"
-          : null,
-      })),
-    });
-  } catch (error) {
-    console.error("Reviews GET API error:", error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unknown server error.",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(request: Request) {
-  try {
-    const body = (await request.json()) as ReviewPayload;
-
-    const bookingNo = body.booking_no?.trim();
-    const rating = Number(body.rating);
-
-    const comment =
-      typeof body.comment === "string"
-        ? body.comment.trim().slice(0, 500) || null
-        : null;
-
-    if (!bookingNo) {
       return NextResponse.json(
         {
           success: false,
-          error: "Booking number is required.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Rating must be a whole number from 1 to 5.",
-        },
-        { status: 400 }
-      );
-    }
-
-    const supabaseAdmin = createAdminClient();
-
-    const { data: order, error: orderError } = await supabaseAdmin
-      .from("orders")
-      .select("id, booking_no, assigned_rider, status")
-      .eq("booking_no", bookingNo)
-      .maybeSingle<{
-        id: number;
-        booking_no: string;
-        assigned_rider: string | null;
-        status: string | null;
-      }>();
-
-    if (orderError) {
-      throw new Error(orderError.message);
-    }
-
-    if (!order) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Booking not found.",
+          error: result.message || "No road route was found.",
         },
         { status: 404 }
       );
     }
 
-    if (order.status !== "Completed") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Only completed deliveries can be reviewed.",
+    const leafletCoordinates: [number, number][] =
+      firstRoute.geometry.coordinates.map(([longitude, latitude]) => [
+        latitude,
+        longitude,
+      ]);
+
+    return NextResponse.json(
+      {
+        success: true,
+        route: {
+          coordinates: leafletCoordinates,
+          distance_meters: firstRoute.distance,
+          duration_seconds: firstRoute.duration,
         },
-        { status: 409 }
-      );
-    }
-
-    const { data: existingReview, error: existingReviewError } =
-      await supabaseAdmin
-        .from("delivery_reviews")
-        .select("id")
-        .eq("order_id", order.id)
-        .maybeSingle<{ id: number }>();
-
-    if (existingReviewError) {
-      throw new Error(existingReviewError.message);
-    }
-
-    if (existingReview) {
-      return NextResponse.json(
-        {
-          success: false,
-          code: "ALREADY_REVIEWED",
-          error: "A review has already been submitted for this booking.",
+      },
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
         },
-        { status: 409 }
-      );
-    }
-
-    const { data: review, error: insertError } = await supabaseAdmin
-      .from("delivery_reviews")
-      .insert({
-        order_id: order.id,
-        booking_no: order.booking_no,
-        rider_id: order.assigned_rider,
-        rating,
-        comment,
-      })
-      .select("id, rating, comment, created_at")
-      .single();
-
-    if (insertError) {
-      if (insertError.code === "23505") {
-        return NextResponse.json(
-          {
-            success: false,
-            code: "ALREADY_REVIEWED",
-            error: "A review has already been submitted for this booking.",
-          },
-          { status: 409 }
-        );
       }
-
-      throw new Error(insertError.message);
-    }
-
-    return NextResponse.json({
-      success: true,
-      review,
-    });
+    );
   } catch (error) {
-    console.error("Review API error:", error);
+    const isAbortError =
+      error instanceof Error && error.name === "AbortError";
+
+    console.error("Route API error:", error);
 
     return NextResponse.json(
       {
         success: false,
-        error:
-          error instanceof Error
+        error: isAbortError
+          ? "The routing service took too long to respond."
+          : error instanceof Error
             ? error.message
-            : "Unknown server error.",
+            : "Unknown routing error.",
       },
-      { status: 500 }
+      { status: isAbortError ? 504 : 400 }
     );
   }
 }

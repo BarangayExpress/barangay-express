@@ -1,6 +1,7 @@
 "use client";
 
 import OperationsCenter from "./OperationsCenter";
+import PaymentsCenter from "./PaymentsCenter";
 import dynamic from "next/dynamic";
 import {
   useCallback,
@@ -1298,6 +1299,7 @@ export default function DashboardClient() {
           </div>
         </section>
           <OperationsCenter />
+          <PaymentsCenter />
         {/* Live Admin Dispatch Map */}
         <section className="mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-blue-100/60">
           <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-blue-700 px-6 py-6 text-white md:px-8">

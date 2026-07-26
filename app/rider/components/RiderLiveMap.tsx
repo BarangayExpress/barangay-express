@@ -144,10 +144,21 @@ function navigationLabel(status: string | null) {
   return "Pickup";
 }
 
-function directionsUrl(point: MapPoint | null) {
-  if (!point) return "#";
+function directionsUrl(
+  origin: MapPoint,
+  destination: MapPoint | null
+) {
+  if (!destination) return "#";
 
-  return `https://www.google.com/maps/dir/?api=1&destination=${point.latitude},${point.longitude}&travelmode=driving`;
+  const params = new URLSearchParams({
+    api: "1",
+    origin: `${origin.latitude},${origin.longitude}`,
+    destination: `${destination.latitude},${destination.longitude}`,
+    travelmode: "driving",
+    dir_action: "navigate",
+  });
+
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
 }
 
 export default function RiderLiveMap({
@@ -337,14 +348,14 @@ export default function RiderLiveMap({
                 REMAINING DISTANCE
               </small>
               <div
-  style={{
-    marginTop: 4,
-    fontSize: 22,
-    fontWeight: 900,
-    color: "#0f172a",
-    opacity: 1,
-  }}
->
+                style={{
+                  marginTop: 4,
+                  fontSize: 22,
+                  fontWeight: 900,
+                  color: "#0f172a",
+                  opacity: 1,
+                }}
+              >
                 {distanceMeters === null
                   ? "Calculating..."
                   : distanceMeters < 1000
@@ -357,15 +368,15 @@ export default function RiderLiveMap({
               <small style={{ fontWeight: 800, color: "#64748b" }}>
                 ESTIMATED ARRIVAL
               </small>
-             <div
-  style={{
-    marginTop: 4,
-    fontSize: 22,
-    fontWeight: 900,
-    color: "#0f172a",
-    opacity: 1,
-  }}
->
+              <div
+                style={{
+                  marginTop: 4,
+                  fontSize: 22,
+                  fontWeight: 900,
+                  color: "#0f172a",
+                  opacity: 1,
+                }}
+              >
                 {durationSeconds === null
                   ? "Calculating..."
                   : `${Math.max(1, Math.round(durationSeconds / 60))} min`}
@@ -375,7 +386,7 @@ export default function RiderLiveMap({
 
           <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
             <a
-              href={directionsUrl(destination)}
+              href={directionsUrl(rider, destination)}
               target="_blank"
               rel="noreferrer"
               style={{

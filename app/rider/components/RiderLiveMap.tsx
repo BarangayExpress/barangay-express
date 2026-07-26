@@ -332,11 +332,19 @@ export default function RiderLiveMap({
               marginTop: 12,
             }}
           >
-            <div style={{ borderRadius: 14, padding: 14, background: "#eff6ff" }}>
+            <div style={{ borderRadius: 14, padding: 14, background: "#dbeafe" }}>
               <small style={{ fontWeight: 800, color: "#64748b" }}>
                 REMAINING DISTANCE
               </small>
-              <div style={{ marginTop: 4, fontSize: 22, fontWeight: 900 }}>
+              <div
+  style={{
+    marginTop: 4,
+    fontSize: 22,
+    fontWeight: 900,
+    color: "#0f172a",
+    opacity: 1,
+  }}
+>
                 {distanceMeters === null
                   ? "Calculating..."
                   : distanceMeters < 1000
@@ -345,11 +353,19 @@ export default function RiderLiveMap({
               </div>
             </div>
 
-            <div style={{ borderRadius: 14, padding: 14, background: "#ecfdf5" }}>
+            <div style={{ borderRadius: 14, padding: 14, background: "#d1fae5" }}>
               <small style={{ fontWeight: 800, color: "#64748b" }}>
                 ESTIMATED ARRIVAL
               </small>
-              <div style={{ marginTop: 4, fontSize: 22, fontWeight: 900 }}>
+             <div
+  style={{
+    marginTop: 4,
+    fontSize: 22,
+    fontWeight: 900,
+    color: "#0f172a",
+    opacity: 1,
+  }}
+>
                 {durationSeconds === null
                   ? "Calculating..."
                   : `${Math.max(1, Math.round(durationSeconds / 60))} min`}

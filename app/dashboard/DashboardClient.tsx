@@ -245,6 +245,8 @@ export default function DashboardClient() {
   const [liveMapLoading, setLiveMapLoading] = useState(true);
   const [liveMapError, setLiveMapError] = useState("");
 
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
   function navigateFromStatCard(sectionId: string, status?: string) {
   if (status) {
     setFilterStatus(status);
@@ -254,6 +256,33 @@ export default function DashboardClient() {
     scrollToSection(sectionId);
   }, 100);
 }
+function scrollBackToTop() {
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth",
+  });
+}
+
+async function refreshDashboardData() {
+  if (isAutoRefreshing) return;
+
+  setIsAutoRefreshing(true);
+
+  try {
+    window.dispatchEvent(
+      new CustomEvent("barangay-express:refresh-dashboard"),
+    );
+
+    window.setTimeout(() => {
+      window.location.reload();
+    }, 250);
+  } finally {
+    window.setTimeout(() => {
+      setIsAutoRefreshing(false);
+    }, 1000);
+  }
+}
+
   const [selectedLiveBooking, setSelectedLiveBooking] =
     useState<string | null>(null);
   const [liveMapUpdatedAt, setLiveMapUpdatedAt] = useState<Date | null>(null);
@@ -643,6 +672,7 @@ export default function DashboardClient() {
     };
   }, [loadOrders, loadReviews, supabase]);
 
+
   useEffect(() => {
     ordersRef.current = orders;
   }, [orders]);
@@ -662,6 +692,27 @@ export default function DashboardClient() {
   useEffect(() => {
     if (!selectedProof) return;
 
+   useEffect(() => {
+  const handleScroll = () => {
+    const scrollPosition =
+      window.scrollY ||
+      document.documentElement.scrollTop ||
+      document.body.scrollTop;
+
+    setShowBackToTop(scrollPosition > 200);
+  };
+
+  handleScroll();
+
+  window.addEventListener("scroll", handleScroll, { passive: true });
+  document.addEventListener("scroll", handleScroll, { passive: true });
+
+  return () => {
+    window.removeEventListener("scroll", handleScroll);
+    document.removeEventListener("scroll", handleScroll);
+  };
+}, []);
+
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
@@ -670,6 +721,7 @@ export default function DashboardClient() {
         setSelectedProof(null);
       }
     }
+  
 
     window.addEventListener("keydown", handleEscape);
 
@@ -1362,6 +1414,8 @@ export default function DashboardClient() {
     </div>
   </button>
 </section>
+
+
 
 {/* Quick Navigation */}
 <nav className="sticky top-3 z-[80] mt-6">
@@ -2873,7 +2927,7 @@ export default function DashboardClient() {
         <p className="mt-1 text-sm">Fast • Safe • Local</p>
       </footer>
 
-      {newBookingAlert && (
+         {newBookingAlert && (
         <div className="fixed bottom-5 right-4 z-[100] w-[calc(100%-2rem)] max-w-sm rounded-3xl border border-sky-200 bg-white p-5 shadow-2xl shadow-blue-300/40 sm:right-6">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 text-2xl text-white">
@@ -2905,6 +2959,54 @@ export default function DashboardClient() {
           </div>
         </div>
       )}
+
+      {/* Floating Action Center */}
+      <div className="fixed bottom-5 right-5 z-[120] flex flex-col items-end gap-3">
+        {true && (
+          <button
+            type="button"
+            onClick={scrollBackToTop}
+            aria-label="Back to top"
+            title="Back to top"
+            className="flex h-12 w-12 items-center justify-center rounded-2xl border border-slate-200 bg-white text-xl shadow-xl shadow-slate-300/60 transition hover:-translate-y-1 hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-4 focus:ring-blue-100"
+          >
+            ⬆️
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={refreshDashboardData}
+          disabled={isAutoRefreshing}
+          aria-label="Refresh dashboard"
+          title="Refresh dashboard"
+          className="flex h-12 w-12 items-center justify-center rounded-2xl border border-blue-200 bg-blue-700 text-xl text-white shadow-xl shadow-blue-300/60 transition hover:-translate-y-1 hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <span className={isAutoRefreshing ? "animate-spin" : ""}>🔄</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setSoundEnabled((current) => !current)}
+          aria-label={
+            soundEnabled
+              ? "Turn off notification sounds"
+              : "Turn on notification sounds"
+          }
+          title={
+            soundEnabled
+              ? "Notification sounds on"
+              : "Notification sounds off"
+          }
+          className={`flex h-12 w-12 items-center justify-center rounded-2xl border text-xl shadow-xl transition hover:-translate-y-1 focus:outline-none focus:ring-4 ${
+            soundEnabled
+              ? "border-emerald-300 bg-emerald-600 text-white shadow-emerald-300/60 focus:ring-emerald-200"
+              : "border-slate-200 bg-white text-slate-700 shadow-slate-300/60 focus:ring-slate-200"
+          }`}
+        >
+          {soundEnabled ? "🔔" : "🔕"}
+        </button>
+      </div>
     </main>
   );
 }

@@ -244,6 +244,16 @@ export default function DashboardClient() {
   const [liveRiders, setLiveRiders] = useState<AdminRiderMapItem[]>([]);
   const [liveMapLoading, setLiveMapLoading] = useState(true);
   const [liveMapError, setLiveMapError] = useState("");
+
+  function navigateFromStatCard(sectionId: string, status?: string) {
+  if (status) {
+    setFilterStatus(status);
+  }
+
+  window.setTimeout(() => {
+    scrollToSection(sectionId);
+  }, 100);
+}
   const [selectedLiveBooking, setSelectedLiveBooking] =
     useState<string | null>(null);
   const [liveMapUpdatedAt, setLiveMapUpdatedAt] = useState<Date | null>(null);
@@ -1198,115 +1208,160 @@ export default function DashboardClient() {
               : "Waiting..."}
           </p>
         </div>
+{/* Statistics */}
+<section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+  <button
+    type="button"
+    onClick={() => navigateFromStatCard("orders-section", "All")}
+    className="group rounded-3xl border border-blue-100 bg-white p-5 text-left shadow-lg shadow-slate-200/60 transition duration-200 hover:-translate-y-1 hover:border-blue-300 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-100"
+  >
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-bold text-slate-500">Total Orders</p>
 
-        {/* Statistics */}
-        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <div className="rounded-3xl border border-blue-100 bg-white p-5 shadow-lg shadow-slate-200/60">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-bold text-slate-500">
-                  Total Orders
-                </p>
+        <p className="mt-3 text-4xl font-extrabold text-blue-950">
+          {stats.totalOrders}
+        </p>
+      </div>
 
-                <p className="mt-3 text-4xl font-extrabold text-blue-950">
-                  {stats.totalOrders}
-                </p>
-              </div>
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-2xl transition group-hover:scale-110">
+        📦
+      </div>
+    </div>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-2xl">
-                📦
-              </div>
-            </div>
+    <div className="mt-4 flex items-center justify-between">
+      <p className="text-xs font-semibold text-slate-400">
+        All delivery bookings
+      </p>
 
-            <p className="mt-4 text-xs font-semibold text-slate-400">
-              All delivery bookings
-            </p>
-          </div>
+      <span className="text-sm font-extrabold text-blue-700 transition group-hover:translate-x-1">
+        View →
+      </span>
+    </div>
+  </button>
 
-          <div className="rounded-3xl border border-amber-100 bg-white p-5 shadow-lg shadow-slate-200/60">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-bold text-slate-500">Pending</p>
+  <button
+    type="button"
+    onClick={() => navigateFromStatCard("orders-section", "Pending")}
+    className="group rounded-3xl border border-amber-100 bg-white p-5 text-left shadow-lg shadow-slate-200/60 transition duration-200 hover:-translate-y-1 hover:border-amber-300 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-amber-100"
+  >
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-bold text-slate-500">Pending</p>
 
-                <p className="mt-3 text-4xl font-extrabold text-amber-600">
-                  {stats.pendingOrders}
-                </p>
-              </div>
+        <p className="mt-3 text-4xl font-extrabold text-amber-600">
+          {stats.pendingOrders}
+        </p>
+      </div>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-2xl">
-                ⏳
-              </div>
-            </div>
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-2xl transition group-hover:scale-110">
+        ⏳
+      </div>
+    </div>
 
-            <p className="mt-4 text-xs font-semibold text-slate-400">
-              Waiting for acceptance
-            </p>
-          </div>
+    <div className="mt-4 flex items-center justify-between">
+      <p className="text-xs font-semibold text-slate-400">
+        Waiting for acceptance
+      </p>
 
-          <div className="rounded-3xl border border-sky-100 bg-white p-5 shadow-lg shadow-slate-200/60">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-bold text-slate-500">
-                  Active Deliveries
-                </p>
+      <span className="text-sm font-extrabold text-amber-600 transition group-hover:translate-x-1">
+        View →
+      </span>
+    </div>
+  </button>
 
-                <p className="mt-3 text-4xl font-extrabold text-sky-600">
-                  {stats.activeOrders}
-                </p>
-              </div>
+  <button
+    type="button"
+    onClick={() => navigateFromStatCard("rider-map-section")}
+    className="group rounded-3xl border border-sky-100 bg-white p-5 text-left shadow-lg shadow-slate-200/60 transition duration-200 hover:-translate-y-1 hover:border-sky-300 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-sky-100"
+  >
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-bold text-slate-500">
+          Active Deliveries
+        </p>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-2xl">
-                🏍️
-              </div>
-            </div>
+        <p className="mt-3 text-4xl font-extrabold text-sky-600">
+          {stats.activeOrders}
+        </p>
+      </div>
 
-            <p className="mt-4 text-xs font-semibold text-slate-400">
-              Currently being handled
-            </p>
-          </div>
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-50 text-2xl transition group-hover:scale-110">
+        🏍️
+      </div>
+    </div>
 
-          <div className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-lg shadow-slate-200/60">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-bold text-slate-500">Completed</p>
+    <div className="mt-4 flex items-center justify-between">
+      <p className="text-xs font-semibold text-slate-400">
+        Currently being handled
+      </p>
 
-                <p className="mt-3 text-4xl font-extrabold text-emerald-600">
-                  {stats.completedOrders}
-                </p>
-              </div>
+      <span className="text-sm font-extrabold text-sky-600 transition group-hover:translate-x-1">
+        Map →
+      </span>
+    </div>
+  </button>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-2xl">
-                ✅
-              </div>
-            </div>
+  <button
+    type="button"
+    onClick={() => navigateFromStatCard("orders-section", "Completed")}
+    className="group rounded-3xl border border-emerald-100 bg-white p-5 text-left shadow-lg shadow-slate-200/60 transition duration-200 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-emerald-100"
+  >
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-bold text-slate-500">Completed</p>
 
-            <p className="mt-4 text-xs font-semibold text-slate-400">
-              Finished transactions
-            </p>
-          </div>
+        <p className="mt-3 text-4xl font-extrabold text-emerald-600">
+          {stats.completedOrders}
+        </p>
+      </div>
 
-          <div className="rounded-3xl border border-violet-100 bg-gradient-to-br from-blue-950 to-blue-700 p-5 text-white shadow-xl shadow-blue-200/60 sm:col-span-2 xl:col-span-1">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-sm font-bold text-blue-100">
-                  Total Earnings
-                </p>
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-2xl transition group-hover:scale-110">
+        ✅
+      </div>
+    </div>
 
-                <p className="mt-3 text-3xl font-extrabold">
-                  {formatCurrency(stats.totalEarnings)}
-                </p>
-              </div>
+    <div className="mt-4 flex items-center justify-between">
+      <p className="text-xs font-semibold text-slate-400">
+        Finished transactions
+      </p>
 
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-2xl">
-                💰
-              </div>
-            </div>
+      <span className="text-sm font-extrabold text-emerald-600 transition group-hover:translate-x-1">
+        View →
+      </span>
+    </div>
+  </button>
 
-            <p className="mt-4 text-xs font-semibold text-blue-200">
-              Delivered and completed
-            </p>
-          </div>
-        </section>
+  <button
+    type="button"
+    onClick={() => navigateFromStatCard("payments-section")}
+    className="group rounded-3xl border border-violet-100 bg-gradient-to-br from-blue-950 to-blue-700 p-5 text-left text-white shadow-xl shadow-blue-200/60 transition duration-200 hover:-translate-y-1 hover:shadow-2xl focus:outline-none focus:ring-4 focus:ring-blue-200 sm:col-span-2 xl:col-span-1"
+  >
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-sm font-bold text-blue-100">Total Earnings</p>
+
+        <p className="mt-3 text-3xl font-extrabold">
+          {formatCurrency(stats.totalEarnings)}
+        </p>
+      </div>
+
+      <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/10 text-2xl transition group-hover:scale-110">
+        💰
+      </div>
+    </div>
+
+    <div className="mt-4 flex items-center justify-between">
+      <p className="text-xs font-semibold text-blue-200">
+        Delivered and completed
+      </p>
+
+      <span className="text-sm font-extrabold text-white transition group-hover:translate-x-1">
+        Payments →
+      </span>
+    </div>
+  </button>
+</section>
 
 {/* Quick Navigation */}
 <nav className="sticky top-3 z-[80] mt-6">

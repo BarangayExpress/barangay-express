@@ -1,98 +1,37 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase-browser";
 
+const supabase = createClient();
 type RiderProfile = {
   id: string;
   full_name: string;
   is_active: boolean | null;
 };
 
+
+const LOGIN_TIMEOUT_MS = 15000;
+
 export default function RiderLoginPage() {
   const router = useRouter();
-
-  const supabase = useMemo<SupabaseClient | null>(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!url || !anonKey) {
-      return null;
-    }
-
-    return createClient(url, anonKey);
-  }, []);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [checkingSession, setCheckingSession] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function checkExistingSession() {
-      if (!supabase) {
-        if (mounted) {
-          setErrorMessage(
-            "Missing Supabase environment variables. Check NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY."
-          );
-          setCheckingSession(false);
-        }
-        return;
-      }
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session?.user) {
-        if (mounted) {
-          setCheckingSession(false);
-        }
-        return;
-      }
-
-      const { data: riderProfile } = await supabase
-        .from("rider_profiles")
-        .select("id, full_name, is_active")
-        .eq("id", session.user.id)
-        .maybeSingle<RiderProfile>();
-
-      if (!mounted) return;
-
-      if (riderProfile?.is_active) {
-        router.replace("/rider/dashboard");
-        router.refresh();
-        return;
-      }
-
-      await supabase.auth.signOut();
-      setCheckingSession(false);
-    }
-
-    checkExistingSession();
-
-    return () => {
-      mounted = false;
-    };
-  }, [router, supabase]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+ console.log("Rider login handler started");
     setErrorMessage("");
 
-    if (!supabase) {
-      setErrorMessage(
-        "Supabase is not configured. Check your environment variables."
-      );
-      return;
-    }
+    const cleanEmail = email.trim().toLowerCase();
 
-    if (!email.trim() || !password) {
+    if (!cleanEmail || !password) {
       setErrorMessage("Ilagay ang rider email at password.");
       return;
     }
@@ -100,23 +39,41 @@ export default function RiderLoginPage() {
     setLoading(true);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+      const signInResult = await Promise.race([
+        supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        }),
+
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            reject(
+              new Error(
+                "Masyadong matagal ang login request. Tingnan ang internet connection at subukan muli."
+              )
+            );
+          }, LOGIN_TIMEOUT_MS);
+        }),
+      ]);
+
+      const { data, error } = signInResult;
 
       if (error || !data.user) {
-        throw new Error(error?.message || "Hindi makapag-login.");
+        throw new Error(
+          error?.message || "Hindi makapag-login gamit ang account na ito."
+        );
       }
 
-      const { data: riderProfile, error: profileError } = await supabase
-        .from("rider_profiles")
-        .select("id, full_name, is_active")
-        .eq("id", data.user.id)
-        .maybeSingle<RiderProfile>();
+      const { data: riderProfile, error: profileError } =
+        await supabase
+          .from("rider_profiles")
+          .select("id, full_name, is_active")
+          .eq("id", data.user.id)
+          .maybeSingle<RiderProfile>();
 
       if (profileError) {
         await supabase.auth.signOut();
+
         throw new Error(
           "Hindi mabasa ang rider profile. Pakitingnan ang rider_profiles table at RLS policy."
         );
@@ -124,13 +81,15 @@ export default function RiderLoginPage() {
 
       if (!riderProfile) {
         await supabase.auth.signOut();
+
         throw new Error(
-          "Ang account na ito ay walang rider profile. Admin account lamang o hindi pa naka-register bilang rider."
+          "Walang rider profile ang account na ito. Gumamit ng registered rider account."
         );
       }
 
       if (!riderProfile.is_active) {
         await supabase.auth.signOut();
+
         throw new Error(
           "Inactive ang rider account na ito. Makipag-ugnayan sa administrator."
         );
@@ -138,6 +97,11 @@ export default function RiderLoginPage() {
 
       router.replace("/rider/dashboard");
       router.refresh();
+
+      // Fallback para sa mobile browser kung hindi tumuloy ang router.
+      window.setTimeout(() => {
+        window.location.replace("/rider/dashboard");
+      }, 500);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -147,17 +111,6 @@ export default function RiderLoginPage() {
     } finally {
       setLoading(false);
     }
-  }
-
-  if (checkingSession) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6">
-        <div className="rounded-3xl border border-white/10 bg-white/10 px-8 py-7 text-center text-white shadow-2xl backdrop-blur">
-          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-white/20 border-t-sky-400" />
-          <p className="mt-4 font-bold">Checking rider session...</p>
-        </div>
-      </main>
-    );
   }
 
   return (
@@ -197,7 +150,10 @@ export default function RiderLoginPage() {
                 className="rounded-2xl border border-white/10 bg-white/10 p-4 text-center"
               >
                 <div className="text-2xl">{icon}</div>
-                <div className="mt-2 text-sm font-extrabold">{label}</div>
+
+                <div className="mt-2 text-sm font-extrabold">
+                  {label}
+                </div>
               </div>
             ))}
           </div>
@@ -212,39 +168,54 @@ export default function RiderLoginPage() {
               </div>
             </div>
 
-            <p className="mt-8 text-sm font-extrabold uppercase tracking-[0.22em] text-sky-400 lg:mt-0">
-              Rider Portal
-            </p>
+            <div className="mt-8 flex items-center justify-between gap-3 lg:mt-0">
+              <p className="text-sm font-extrabold uppercase tracking-[0.22em] text-sky-400">
+                Rider Portal
+              </p>
 
-            <h2 className="mt-3 text-4xl font-black">Welcome back</h2>
+            </div>
+
+            <h2 className="mt-3 text-4xl font-black">
+              Welcome back
+            </h2>
 
             <p className="mt-3 leading-7 text-slate-300">
               Mag-login gamit ang iyong registered rider account.
             </p>
 
-            <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+            <form
+          className="mt-8 space-y-5"
+       onSubmit={handleSubmit}
+         >
               <div>
                 <label
-                  htmlFor="email"
+                  htmlFor="rider-email"
                   className="mb-2 block text-sm font-extrabold text-slate-200"
                 >
                   Rider email
                 </label>
 
                 <input
-                  id="email"
+                  id="rider-email"
+                  name="email"
                   type="email"
-                  autoComplete="email"
+                  inputMode="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="username"
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) =>
+                    setEmail(event.target.value)
+                  }
                   placeholder="rider@example.com"
-                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10"
+                  disabled={loading}
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
 
               <div>
                 <label
-                  htmlFor="password"
+                  htmlFor="rider-password"
                   className="mb-2 block text-sm font-extrabold text-slate-200"
                 >
                   Password
@@ -252,19 +223,26 @@ export default function RiderLoginPage() {
 
                 <div className="relative">
                   <input
-                    id="password"
+                    id="rider-password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
                     autoComplete="current-password"
                     value={password}
-                    onChange={(event) => setPassword(event.target.value)}
+                    onChange={(event) =>
+                      setPassword(event.target.value)
+                    }
                     placeholder="Enter your password"
-                    className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 pr-24 text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10"
+                    disabled={loading}
+                    className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 pr-24 text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
                   />
 
                   <button
                     type="button"
-                    onClick={() => setShowPassword((value) => !value)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl px-3 py-2 text-sm font-extrabold text-sky-300 transition hover:bg-white/10"
+                    onClick={() =>
+                      setShowPassword((value) => !value)
+                    }
+                    disabled={loading}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-xl px-3 py-2 text-sm font-extrabold text-sky-300 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>
@@ -285,14 +263,18 @@ export default function RiderLoginPage() {
                 disabled={loading}
                 className="w-full rounded-2xl bg-gradient-to-r from-sky-400 to-blue-600 px-5 py-4 text-lg font-black text-white shadow-lg shadow-blue-900/30 transition hover:-translate-y-0.5 hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? "Signing in..." : "Login as Rider"}
+                {loading
+                  ? "Signing in..."
+                  : "Login as Rider"}
               </button>
             </form>
 
             <div className="mt-7 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm leading-6 text-slate-400">
-              <span className="font-extrabold text-slate-200">Security:</span>{" "}
-              Admin accounts without a matching active rider profile cannot
-              enter the rider portal.
+              <span className="font-extrabold text-slate-200">
+                Security:
+              </span>{" "}
+              Admin accounts na walang matching active rider profile
+              ay hindi makakapasok sa rider portal.
             </div>
 
             <p className="mt-8 text-center text-sm text-slate-500">

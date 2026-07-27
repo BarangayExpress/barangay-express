@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient, SupabaseClient, User } from "@supabase/supabase-js";
+import type { User } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase-browser";
 import RiderLocationTracker from "../components/RiderLocationTracker";
 import DeliveryProofModal from "../components/DeliveryProofModal";
 
@@ -187,13 +188,7 @@ function isToday(value: string | null) {
 export default function RiderDashboardPage() {
   const router = useRouter();
 
-  const supabase = useMemo<SupabaseClient | null>(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!url || !anonKey) return null;
-    return createClient(url, anonKey);
-  }, []);
+ const supabase = useMemo(() => createClient(), []);
 
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<RiderProfile | null>(null);
@@ -210,11 +205,7 @@ export default function RiderDashboardPage() {
 
   const loadDashboard = useCallback(
     async (showFullLoader = false) => {
-      if (!supabase) {
-        setErrorMessage("Supabase environment variables are missing.");
-        setLoading(false);
-        return;
-      }
+    
 
       if (showFullLoader) setLoading(true);
       else setRefreshing(true);
@@ -312,7 +303,7 @@ export default function RiderDashboardPage() {
   }, [loadDashboard, supabase]);
 
   async function updateOrder(order: Order) {
-    if (!supabase || !user) return;
+    if (!user) return;
 
     const currentStatus = order.status || "Pending";
     const action = WORKFLOW[currentStatus];
@@ -390,9 +381,7 @@ export default function RiderDashboardPage() {
   }
 
   async function logout() {
-    if (supabase) {
-      await supabase.auth.signOut();
-    }
+    await supabase.auth.signOut();
 
     router.replace("/rider/login");
     router.refresh();
@@ -892,7 +881,7 @@ export default function RiderDashboardPage() {
         </section>
       </div>
 
-      {proofOrder && supabase && user && (
+      {proofOrder && user && (
         <DeliveryProofModal
           open={Boolean(proofOrder)}
           orderId={proofOrder.id}

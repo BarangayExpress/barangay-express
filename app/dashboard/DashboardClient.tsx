@@ -205,7 +205,16 @@ function createMapsUrl(address: string | null) {
     address
   )}`;
 }
+function scrollToSection(sectionId: string) {
+  const element = document.getElementById(sectionId);
 
+  if (!element) return;
+
+  element.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+  });
+}
 export default function DashboardClient() {
   const supabase = useMemo<SupabaseClient | null>(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -1298,10 +1307,67 @@ export default function DashboardClient() {
             </p>
           </div>
         </section>
-          <OperationsCenter />
-          <PaymentsCenter />
-        {/* Live Admin Dispatch Map */}
-        <section className="mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-blue-100/60">
+
+{/* Quick Navigation */}
+<nav className="sticky top-3 z-[80] mt-6">
+  <div className="flex gap-2 overflow-x-auto rounded-2xl border border-blue-100 bg-white/95 p-2 shadow-xl shadow-slate-200/60 backdrop-blur">
+    {[
+      {
+        id: "operations-section",
+        icon: "⚙️",
+        label: "Operations",
+      },
+      {
+        id: "payments-section",
+        icon: "💳",
+        label: "Payments",
+      },
+      {
+        id: "rider-map-section",
+        icon: "🗺️",
+        label: "Rider Map",
+      },
+      {
+        id: "reviews-section",
+        icon: "⭐",
+        label: "Reviews",
+      },
+      {
+        id: "analytics-section",
+        icon: "📊",
+        label: "Analytics",
+      },
+      {
+        id: "orders-section",
+        icon: "📦",
+        label: "Orders",
+      },
+    ].map((item) => (
+      <button
+        key={item.id}
+        type="button"
+        onClick={() => scrollToSection(item.id)}
+        className="shrink-0 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-700 transition hover:border-blue-600 hover:bg-blue-700 hover:text-white"
+      >
+        <span className="mr-2">{item.icon}</span>
+        {item.label}
+      </button>
+    ))}
+  </div>
+</nav>
+
+<div id="operations-section" className="scroll-mt-28">
+  <OperationsCenter />
+</div>
+
+<div id="payments-section" className="scroll-mt-28">
+  <PaymentsCenter />
+</div>
+{/* Live Admin Dispatch Map */}
+<section
+  id="rider-map-section"
+  className="scroll-mt-28 mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-blue-100/60"
+>
           <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-blue-700 px-6 py-6 text-white md:px-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -1494,7 +1560,10 @@ export default function DashboardClient() {
           </div>
         </section>
 
-        <section className="mt-8 overflow-hidden rounded-[2rem] border border-amber-100 bg-white shadow-xl shadow-amber-100/60">
+        <section
+  id="reviews-section"
+  className="scroll-mt-28 mt-8 overflow-hidden rounded-[2rem] border border-amber-100 bg-white shadow-xl shadow-amber-100/60"
+>
           <div className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 px-6 py-6 text-white md:px-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
@@ -1651,7 +1720,10 @@ export default function DashboardClient() {
         </section>
 
         {/* Operations Analytics */}
-        <section className="mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60">
+        <section
+  id="analytics-section"
+  className="scroll-mt-28 mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60"
+> 
           <div className="bg-gradient-to-r from-blue-950 via-blue-800 to-sky-600 px-6 py-6 text-white md:px-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
@@ -2123,7 +2195,11 @@ export default function DashboardClient() {
         )}
 
         {/* Orders */}
-        <section className="mt-10">
+        {/* Orders */}
+<section
+  id="orders-section"
+  className="scroll-mt-28 mt-10"
+>
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-bold uppercase tracking-[0.16em] text-blue-500">

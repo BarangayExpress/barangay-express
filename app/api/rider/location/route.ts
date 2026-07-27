@@ -9,6 +9,8 @@ type LocationPayload = {
   speed?: number | null;
 };
 
+const MAX_ACCEPTED_ACCURACY_METERS = 100;
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -85,6 +87,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (
+      !isFiniteNumber(payload.accuracy) ||
+      payload.accuracy <= 0 ||
+      payload.accuracy > MAX_ACCEPTED_ACCURACY_METERS
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "GPS accuracy is too weak. Move outdoors and wait for accuracy of 100 meters or better.",
+          code: "WEAK_GPS",
+          accuracy: isFiniteNumber(payload.accuracy)
+            ? payload.accuracy
+            : null,
+        },
+        { status: 422 }
+      );
+    }
+
     const { data: riderProfile, error: profileError } = await supabase
       .from("rider_profiles")
       .select("id, is_active")
@@ -105,11 +125,13 @@ export async function POST(request: NextRequest) {
           rider_id: user.id,
           latitude: payload.latitude,
           longitude: payload.longitude,
-          accuracy: isFiniteNumber(payload.accuracy)
-            ? payload.accuracy
+          accuracy: payload.accuracy,
+          heading: isFiniteNumber(payload.heading)
+            ? payload.heading
             : null,
-          heading: isFiniteNumber(payload.heading) ? payload.heading : null,
-          speed: isFiniteNumber(payload.speed) ? payload.speed : null,
+          speed: isFiniteNumber(payload.speed)
+            ? payload.speed
+            : null,
           updated_at: new Date().toISOString(),
         },
         {
@@ -122,7 +144,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({

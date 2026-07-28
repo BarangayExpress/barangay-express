@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase-browser";
 
 const RiderLiveMap = dynamic(() => import("./RiderLiveMap"), {
   ssr: false,
@@ -32,8 +32,6 @@ type LastLocation = {
   updatedAt: Date;
 };
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const MAX_ACCURACY = 100;
 const GOOD_ACCURACY = 50;
 
@@ -53,16 +51,7 @@ export default function RiderLocationTracker({
   const [lastLocation, setLastLocation] = useState<LastLocation | null>(null);
   const [latestAccuracy, setLatestAccuracy] = useState<number | null>(null);
 
-  const supabase = useMemo(() => {
-    if (!supabaseUrl || !supabaseAnonKey) return null;
-    return createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true,
-      },
-    });
-  }, []);
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     return () => {

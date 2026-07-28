@@ -59,7 +59,16 @@ type DeliveryReview = {
   comment: string | null;
   created_at: string;
 };
-
+type ActivityLog = {
+  id: number;
+  booking_no: string | null;
+  order_id: number | null;
+  actor: string;
+  actor_type: string;
+  action: string;
+  details: string | null;
+  created_at: string;
+};
 const statuses = [
   "Pending",
   "Accepted",
@@ -244,8 +253,14 @@ export default function DashboardClient() {
   const [liveRiders, setLiveRiders] = useState<AdminRiderMapItem[]>([]);
   const [liveMapLoading, setLiveMapLoading] = useState(true);
   const [liveMapError, setLiveMapError] = useState("");
-
+ 
   const [showBackToTop, setShowBackToTop] = useState(false);
+
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
+  const [activityError, setActivityError] = useState("");
+  const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
+  const [unreadActivityCount, setUnreadActivityCount] = useState(0);
 
   function navigateFromStatCard(sectionId: string, status?: string) {
   if (status) {
@@ -262,6 +277,39 @@ function scrollBackToTop() {
     behavior: "smooth",
   });
 }
+const loadActivityLogs = useCallback(async () => {
+  try {
+    setActivityError("");
+
+    const response = await fetch("/api/admin/activity-logs", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+    });
+
+    const result = (await response.json()) as {
+      success?: boolean;
+      logs?: ActivityLog[];
+      error?: string;
+    };
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || "Hindi makuha ang activity logs.");
+    }
+
+    setActivityLogs(result.logs || []);
+  } catch (error) {
+    console.error("Unable to load activity logs:", error);
+
+    setActivityError(
+      error instanceof Error
+        ? error.message
+        : "Hindi makuha ang activity logs.",
+    );
+  } finally {
+    setActivityLoading(false);
+  }
+}, []);
 
 async function refreshDashboardData() {
   if (isAutoRefreshing) return;
@@ -272,6 +320,7 @@ async function refreshDashboardData() {
     await Promise.all([
       loadOrders(false),
       loadReviews(),
+      loadActivityLogs(),
     ]);
   } catch (error) {
     console.error("Dashboard refresh failed:", error);
@@ -668,6 +717,49 @@ async function refreshDashboardData() {
     };
   }, [loadOrders, loadReviews, supabase]);
 
+  useEffect(() => {
+  if (!supabase) return;
+
+  void loadActivityLogs();
+
+  const activityChannel = supabase
+    .channel("admin-activity-logs-realtime")
+    .on(
+      "postgres_changes",
+      {
+        event: "INSERT",
+        schema: "public",
+        table: "activity_logs",
+      },
+      (payload) => {
+        const newActivity = payload.new as ActivityLog;
+
+        setActivityLogs((current) =>
+          [
+            newActivity,
+            ...current.filter((item) => item.id !== newActivity.id),
+          ].slice(0, 30),
+        );
+
+        setUnreadActivityCount((current) => current + 1);
+
+        if (soundEnabled) {
+          playNotificationSound();
+        }
+      },
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(activityChannel);
+  };
+}, [
+  loadActivityLogs,
+  playNotificationSound,
+  soundEnabled,
+  supabase,
+]);
+
 
   useEffect(() => {
     ordersRef.current = orders;
@@ -686,9 +778,6 @@ async function refreshDashboardData() {
   }, [loadLiveRiders]);
 
   useEffect(() => {
-    if (!selectedProof) return;
-
-   useEffect(() => {
   const handleScroll = () => {
     const scrollPosition =
       window.scrollY ||
@@ -709,23 +798,25 @@ async function refreshDashboardData() {
   };
 }, []);
 
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+useEffect(() => {
+  if (!selectedProof) return;
 
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setSelectedProof(null);
-      }
+  const previousOverflow = document.body.style.overflow;
+  document.body.style.overflow = "hidden";
+
+  function handleEscape(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      setSelectedProof(null);
     }
-  
+  }
 
-    window.addEventListener("keydown", handleEscape);
+  window.addEventListener("keydown", handleEscape);
 
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleEscape);
-    };
-  }, [selectedProof]);
+  return () => {
+    document.body.style.overflow = previousOverflow;
+    window.removeEventListener("keydown", handleEscape);
+  };
+}, [selectedProof]);
 
   async function updateStatus(orderId: number, newStatus: string) {
     setUpdatingId(orderId);
@@ -1245,16 +1336,145 @@ async function refreshDashboardData() {
             </p>
           </div>
 
-          <p className="text-xs font-semibold text-slate-400">
-            Last updated:{" "}
-            {lastUpdated
-              ? lastUpdated.toLocaleTimeString("en-PH", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                  second: "2-digit",
-                })
-              : "Waiting..."}
+          <div className="flex items-center gap-4">
+  <div className="relative">
+  <button
+    type="button"
+    onClick={() => {
+      setNotificationPanelOpen((current) => !current);
+      setUnreadActivityCount(0);
+    }}
+    aria-label="Open notifications"
+    title="Notifications"
+    className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-100 bg-white text-xl shadow-lg transition hover:bg-blue-50"
+  >
+    🔔
+
+    {unreadActivityCount > 0 && (
+      <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white">
+        {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
+      </span>
+    )}
+  </button>
+
+  {notificationPanelOpen && (
+    <div className="absolute right-0 top-14 z-[160] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div>
+          <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-blue-500">
+            Activity Center
           </p>
+
+          <h3 className="mt-1 text-lg font-extrabold text-blue-950">
+            Notifications
+          </h3>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setNotificationPanelOpen(false)}
+          className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-500 hover:bg-slate-200"
+          aria-label="Close notifications"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="max-h-[28rem] overflow-y-auto">
+        {activityLoading ? (
+          <div className="p-6 text-center text-sm font-semibold text-slate-500">
+            Loading notifications...
+          </div>
+        ) : activityError ? (
+          <div className="m-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">
+            {activityError}
+          </div>
+        ) : activityLogs.length === 0 ? (
+          <div className="p-8 text-center">
+            <div className="text-3xl">🔕</div>
+
+            <p className="mt-3 font-extrabold text-slate-700">
+              Wala pang activity
+            </p>
+          </div>
+        ) : (
+          activityLogs.map((activity) => (
+            <div
+              key={activity.id}
+              className="border-b border-slate-100 px-5 py-4 last:border-b-0 hover:bg-slate-50"
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-lg">
+                  {activity.actor_type === "rider"
+                    ? "🏍️"
+                    : activity.actor_type === "customer"
+                      ? "👤"
+                      : "🛡️"}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="font-extrabold text-slate-800">
+                      {activity.action}
+                    </p>
+
+                    <span className="shrink-0 text-[11px] font-semibold text-slate-400">
+                      {new Date(activity.created_at).toLocaleTimeString(
+                        "en-PH",
+                        {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        },
+                      )}
+                    </span>
+                  </div>
+
+                  {activity.booking_no && (
+                    <p className="mt-1 break-all text-xs font-extrabold text-blue-600">
+                      {activity.booking_no}
+                    </p>
+                  )}
+
+                  {activity.details && (
+                    <p className="mt-2 text-sm font-medium leading-5 text-slate-600">
+                      {activity.details}
+                    </p>
+                  )}
+
+                  <p className="mt-2 text-xs font-semibold text-slate-400">
+                    {activity.actor}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="border-t border-slate-100 bg-slate-50 px-5 py-3 text-center">
+        <button
+          type="button"
+          onClick={() => setUnreadActivityCount(0)}
+          className="text-sm font-extrabold text-blue-700 hover:text-blue-900"
+        >
+          Mark all as read
+        </button>
+      </div>
+    </div>
+  )}
+</div>
+
+  <p className="text-xs font-semibold text-slate-400">
+    Last updated:{" "}
+    {lastUpdated
+      ? lastUpdated.toLocaleTimeString("en-PH", {
+          hour: "numeric",
+          minute: "2-digit",
+          second: "2-digit",
+        })
+      : "Waiting..."}
+  </p>
+</div>
         </div>
 {/* Statistics */}
 <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">

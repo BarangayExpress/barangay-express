@@ -5,6 +5,7 @@ import {
   BusinessSettingsRow,
   evaluateBusinessAvailability,
 } from "@/lib/business-availability";
+import { requireAdmin } from "@/lib/require-role";
 
 type BookingPayload = {
   booking_no?: string;
@@ -254,49 +255,6 @@ async function sendTelegramNotification(booking: ValidatedBooking) {
   }
 }
 
-async function requireAdmin() {
-  const serverSupabase = await createServerClient();
-
-  const {
-    data: { user },
-    error,
-  } = await serverSupabase.auth.getUser();
-
-  if (error || !user) {
-    return {
-      authorized: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Please log in.",
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const currentEmail = user.email?.trim().toLowerCase();
-
-  if (!adminEmail || !currentEmail || currentEmail !== adminEmail) {
-    return {
-      authorized: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          error: "Forbidden. Admin access only.",
-        },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    authorized: true as const,
-    serverSupabase,
-  };
-}
-
 export async function GET() {
   try {
     const authorization = await requireAdmin();
@@ -304,8 +262,8 @@ export async function GET() {
     if (!authorization.authorized) {
       return authorization.response;
     }
-
-    const { data, error } = await authorization.serverSupabase
+   const serverSupabase = await createServerClient();
+   const { data, error } = await serverSupabase
       .from("orders")
       .select("*")
       .order("created_at", { ascending: false });

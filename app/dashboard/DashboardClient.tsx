@@ -10,7 +10,10 @@ import {
   useRef,
   useState,
 } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+
+import { createClient } from "@/lib/supabase-browser";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import LogoutButton from "./LogoutButton";
 import type { AdminRiderMapItem } from "./AdminLiveMap";
 
@@ -225,13 +228,7 @@ function scrollToSection(sectionId: string) {
   });
 }
 export default function DashboardClient() {
-  const supabase = useMemo<SupabaseClient | null>(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!url || !anonKey) return null;
-    return createClient(url, anonKey);
-  }, []);
+  const supabase = useMemo<SupabaseClient>(() => createClient(), []);
 
   const [isMounted, setIsMounted] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);

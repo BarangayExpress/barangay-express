@@ -269,20 +269,16 @@ async function refreshDashboardData() {
   setIsAutoRefreshing(true);
 
   try {
-    window.dispatchEvent(
-      new CustomEvent("barangay-express:refresh-dashboard"),
-    );
-
-    window.setTimeout(() => {
-      window.location.reload();
-    }, 250);
+    await Promise.all([
+      loadOrders(false),
+      loadReviews(),
+    ]);
+  } catch (error) {
+    console.error("Dashboard refresh failed:", error);
   } finally {
-    window.setTimeout(() => {
-      setIsAutoRefreshing(false);
-    }, 1000);
+    setIsAutoRefreshing(false);
   }
 }
-
   const [selectedLiveBooking, setSelectedLiveBooking] =
     useState<string | null>(null);
   const [liveMapUpdatedAt, setLiveMapUpdatedAt] = useState<Date | null>(null);

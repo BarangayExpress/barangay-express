@@ -14,9 +14,7 @@ const ALLOWED_FILE_TYPES = new Set([
 
 const MANUAL_ONLINE_PAYMENT_METHODS = new Set([
   "GCash",
-  // Future:
-  // "Maya",
-  // "Bank Transfer",
+  "Maya",
 ]);
 
 type PaymentOrderRow = {

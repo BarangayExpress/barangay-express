@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import StoreControlCard from "./operations/StoreControlCard";
+import PaymentSettingsCard from "./operations/PaymentSettingsCard";
+
 type BusinessSettings = {
   id: number;
   manual_open: boolean;
@@ -11,8 +13,12 @@ type BusinessSettings = {
   closes_at: string;
   timezone: string;
   updated_at: string;
+  gcash_enabled: boolean;
+  gcash_account_name: string | null;
+  gcash_number: string | null;
+  gcash_qr_url: string | null;
+  payment_instructions: string | null;
 };
-
 type BusinessAvailability = {
   accepting_bookings: boolean;
   reason:
@@ -61,6 +67,12 @@ export default function OperationsCenter() {
   const [opensAt, setOpensAt] = useState("08:00");
   const [closesAt, setClosesAt] = useState("18:00");
 
+  const [gcashEnabled, setGcashEnabled] = useState(true);
+  const [gcashAccountName, setGcashAccountName] = useState("");
+  const [gcashNumber, setGcashNumber] = useState("");
+  const [gcashQrUrl, setGcashQrUrl] = useState("");
+  const [paymentInstructions, setPaymentInstructions] = useState("");
+
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -77,6 +89,11 @@ export default function OperationsCenter() {
       setAnnouncement(result.settings.announcement || "");
       setOpensAt(normalizeTime(result.settings.opens_at));
       setClosesAt(normalizeTime(result.settings.closes_at));
+      setGcashEnabled(result.settings.gcash_enabled);
+setGcashAccountName(result.settings.gcash_account_name || "");
+setGcashNumber(result.settings.gcash_number || "");
+setGcashQrUrl(result.settings.gcash_qr_url || "");
+setPaymentInstructions(result.settings.payment_instructions || "");
     },
     []
   );
@@ -126,12 +143,17 @@ export default function OperationsCenter() {
 
   async function updateSettings(
     updates: Partial<{
-      manual_open: boolean;
-      emergency_stop: boolean;
-      announcement: string | null;
-      opens_at: string;
-      closes_at: string;
-    }>,
+  manual_open: boolean;
+  emergency_stop: boolean;
+  announcement: string | null;
+  opens_at: string;
+  closes_at: string;
+  gcash_enabled: boolean;
+  gcash_account_name: string | null;
+  gcash_number: string | null;
+  gcash_qr_url: string | null;
+  payment_instructions: string | null;
+}>,
     message: string
   ) {
     setIsUpdating(true);
@@ -240,7 +262,34 @@ export default function OperationsCenter() {
       "Na-update ang business hours."
     );
   }
+    async function handleSaveGcashSettings() {
+  const cleanedNumber = gcashNumber.replace(/\D/g, "");
 
+  if (
+    gcashEnabled &&
+    (!gcashAccountName.trim() ||
+      !cleanedNumber ||
+      !/^09\d{9}$/.test(cleanedNumber))
+  ) {
+    setErrorMessage(
+      "Ilagay ang valid na GCash account name at 11-digit number na nagsisimula sa 09."
+    );
+    return;
+  }
+
+  await updateSettings(
+    {
+      gcash_enabled: gcashEnabled,
+      gcash_account_name:
+        gcashAccountName.trim().slice(0, 120) || null,
+      gcash_number: cleanedNumber || null,
+      gcash_qr_url: gcashQrUrl.trim() || null,
+      payment_instructions:
+        paymentInstructions.trim().slice(0, 1000) || null,
+    },
+    "Na-save ang GCash payment settings."
+  );
+}
   if (isLoading) {
     return (
       <section className="mt-8 rounded-[2rem] border border-blue-100 bg-white p-8 shadow-xl shadow-blue-100/50">
@@ -494,8 +543,26 @@ export default function OperationsCenter() {
               Save Business Hours
             </button>
           </article>
+           <PaymentSettingsCard
+  gcashEnabled={gcashEnabled}
+  gcashAccountName={gcashAccountName}
+  gcashNumber={gcashNumber}
+  gcashQrUrl={gcashQrUrl}
+  paymentInstructions={paymentInstructions}
+  isUpdating={isUpdating}
+  onGcashEnabledChange={setGcashEnabled}
+  onGcashAccountNameChange={setGcashAccountName}
+  onGcashNumberChange={(value) => {
+    setGcashNumber(value.replace(/\D/g, "").slice(0, 11));
+  }}
+  onGcashQrUrlChange={setGcashQrUrl}
+  onPaymentInstructionsChange={setPaymentInstructions}
+  onSave={() => {
+    void handleSaveGcashSettings();
+  }}
+/>
         </div>
-
+          
         <div
           className={`mt-5 rounded-2xl border px-5 py-4 ${
             effectivelyOpen

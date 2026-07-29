@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createClient as createServerClient } from "@/lib/supabase-server";
+import { requireAdmin } from "@/lib/require-role";
 
 export const dynamic = "force-dynamic";
 
@@ -56,56 +56,13 @@ function createAdminClient() {
   });
 }
 
-async function requireAdmin() {
-  const serverSupabase = await createServerClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await serverSupabase.auth.getUser();
-
-  if (userError || !user) {
-    return {
-      success: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Please log in.",
-        },
-        { status: 401 }
-      ),
-    };
-  }
-
-  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const currentEmail = user.email?.trim().toLowerCase();
-
-  if (!adminEmail || !currentEmail || currentEmail !== adminEmail) {
-    return {
-      success: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          error: "Forbidden. Admin access only.",
-        },
-        { status: 403 }
-      ),
-    };
-  }
-
-  return {
-    success: true as const,
-    user,
-  };
-}
-
 export async function GET() {
   try {
-    const auth = await requireAdmin();
+    const authorization = await requireAdmin();
 
-    if (!auth.success) {
-      return auth.response;
-    }
+if (!authorization.authorized) {
+  return authorization.response;
+}
 
     const supabaseAdmin = createAdminClient();
 
@@ -150,12 +107,11 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   try {
-    const auth = await requireAdmin();
+    const authorization = await requireAdmin();
 
-    if (!auth.success) {
-      return auth.response;
-    }
-
+if (!authorization.authorized) {
+  return authorization.response;
+}
     const body = (await request.json()) as PaymentUpdatePayload;
 
     const orderId = Number(body.order_id);
@@ -257,7 +213,7 @@ export async function PATCH(request: Request) {
       updates = {
         payment_status: "Paid",
         payment_verified_at: now,
-        payment_verified_by: auth.user.email || auth.user.id,
+        payment_verified_by: authorization.email|| authorization.userId,
       };
     } else if (action === "reject") {
       if (order.payment_method !== "GCash") {
@@ -284,7 +240,7 @@ export async function PATCH(request: Request) {
       updates = {
         payment_status: "Rejected",
         payment_verified_at: now,
-        payment_verified_by: auth.user.email || auth.user.id,
+        payment_verified_by:authorization.email ||authorization.userId,
       };
     } else if (action === "refund") {
       if (order.payment_status !== "Paid") {
@@ -300,7 +256,7 @@ export async function PATCH(request: Request) {
       updates = {
         payment_status: "Refunded",
         payment_verified_at: now,
-        payment_verified_by: auth.user.email || auth.user.id,
+        payment_verified_by:authorization.email ||authorization.userId,
       };
     } else {
       updates = {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createClient as createServerClient } from "@/lib/supabase-server";
+import { requireAdmin } from "@/lib/require-role";
 
 export const dynamic = "force-dynamic";
 
@@ -36,57 +36,13 @@ function createAdminClient() {
   });
 }
 
-async function requireAdmin() {
-  const serverSupabase = await createServerClient();
-
-  const {
-    data: { user },
-    error: userError,
-  } = await serverSupabase.auth.getUser();
-
-  if (userError || !user) {
-    return {
-      success: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Please log in.",
-        },
-        { status: 401 },
-      ),
-    };
-  }
-
-  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const currentEmail = user.email?.trim().toLowerCase();
-
-  if (!adminEmail || !currentEmail || currentEmail !== adminEmail) {
-    return {
-      success: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          error: "Forbidden. Admin access only.",
-        },
-        { status: 403 },
-      ),
-    };
-  }
-
-  return {
-    success: true as const,
-    user,
-  };
-}
-
 export async function GET() {
   try {
-    const auth = await requireAdmin();
+    const authorization = await requireAdmin();
 
-    if (!auth.success) {
-      return auth.response;
-    }
-
+if (!authorization.authorized) {
+  return authorization.response;
+}
     const supabaseAdmin = createAdminClient();
 
     const { data, error } = await supabaseAdmin

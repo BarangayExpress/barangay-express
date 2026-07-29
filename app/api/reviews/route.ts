@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createClient as createServerClient } from "@/lib/supabase-server";
+import { requireAdmin } from "@/lib/require-role";
 
 type ReviewPayload = {
   booking_no?: string;
@@ -41,35 +41,12 @@ function createAdminClient() {
 
 export async function GET() {
   try {
-    const serverSupabase = await createServerClient();
+    const authorization = await requireAdmin();
 
-    const {
-      data: { user },
-      error: userError,
-    } = await serverSupabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Please log in.",
-        },
-        { status: 401 }
-      );
+    if (!authorization.authorized) {
+      return authorization.response;
     }
-
-    const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-    const currentEmail = user.email?.trim().toLowerCase();
-
-    if (!adminEmail || !currentEmail || currentEmail !== adminEmail) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Forbidden. Admin access only.",
-        },
-        { status: 403 }
-      );
-    }
+    
 
     const supabaseAdmin = createAdminClient();
 

@@ -1,6 +1,7 @@
 "use client";
 
 import BusinessAvailabilityGate from "./BusinessAvailabilityGate";
+import PaymentAfterBooking from "./components/PaymentAfterBooking";
 import dynamic from "next/dynamic";
 import {
   ChangeEvent,
@@ -118,6 +119,9 @@ export default function BookPage() {
   const [form, setForm] = useState<BookingForm>(initialForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingNumber, setBookingNumber] = useState("");
+  const [completedSenderPhone, setCompletedSenderPhone] = useState("");
+  const [completedPaymentMethod, setCompletedPaymentMethod] =useState("");
+  const [completedAmount, setCompletedAmount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
   const [pickupPoint, setPickupPoint] = useState<MapPoint | null>(null);
   const [dropoffPoint, setDropoffPoint] = useState<MapPoint | null>(null);
@@ -241,6 +245,9 @@ export default function BookPage() {
       }
 
       setBookingNumber(newBookingNumber);
+      setCompletedSenderPhone(form.sender_phone.trim());
+      setCompletedPaymentMethod(form.payment_method);
+      setCompletedAmount(price);
       setForm(initialForm);
       setPickupPoint(null);
       setDropoffPoint(null);
@@ -380,6 +387,13 @@ export default function BookPage() {
                   I-save o i-screenshot ang booking number. Kakailanganin ito
                   upang makita ang status ng iyong delivery.
                 </p>
+                
+                <PaymentAfterBooking
+                  bookingNumber={bookingNumber}
+                  senderPhone={completedSenderPhone}
+                  paymentMethod={completedPaymentMethod}
+                  amount={completedAmount}
+                  /> 
 
                 <div className="mt-8 grid gap-3 sm:grid-cols-2">
                   <a
@@ -391,7 +405,12 @@ export default function BookPage() {
 
                   <button
                     type="button"
-                    onClick={() => setBookingNumber("")}
+                    onClick={() => {
+                    setBookingNumber("");
+                    setCompletedSenderPhone("");
+                    setCompletedPaymentMethod("");
+                    setCompletedAmount(0);
+                  }}
                     className="rounded-2xl border border-blue-200 bg-white px-6 py-4 font-bold text-blue-700 transition hover:bg-blue-50"
                   >
                     Create Another Booking

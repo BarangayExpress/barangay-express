@@ -27,6 +27,7 @@ type PaymentOrderRow = {
   payment_reference: string | null;
   payment_submitted_at: string | null;
   payment_verified_at: string | null;
+  payment_proof_path: string | null;
   payment_verified_by: string | null;
   cash_collected_at: string | null;
   cash_collected_by: string | null;
@@ -65,30 +66,80 @@ if (!authorization.authorized) {
 }
 
     const supabaseAdmin = createAdminClient();
-
-   const { data, error } = await supabaseAdmin
+const { data, error } = await supabaseAdmin
   .from("orders")
   .select(
-    "id, booking_no, sender_name, sender_phone, receiver_name, payment_method, payment_status, payment_reference, payment_submitted_at, payment_verified_at, payment_verified_by, cash_collected_at, cash_collected_by, price, status, created_at"
+    `
+    id,
+    booking_no,
+    sender_name,
+    sender_phone,
+    receiver_name,
+    payment_method,
+    payment_status,
+    payment_reference,
+    payment_submitted_at,
+    payment_verified_at,
+    payment_verified_by,
+    cash_collected_at,
+    cash_collected_by,
+    price,
+    status,
+    created_at,
+    payment_proof_path
+    `
   )
   .order("created_at", { ascending: false })
   .returns<PaymentOrderRow[]>();
 
-    if (error) {
-      throw new Error(error.message);
+if (error) {
+  throw new Error(error.message);
+}
+
+const payments = await Promise.all(
+  (data ?? []).map(async (payment) => {
+    let payment_proof_url: string | null = null;
+
+    if (payment.payment_proof_path) {
+      const { data: signedUrlData, error: signedUrlError } =
+        await supabaseAdmin.storage
+          .from("payment-proofs")
+          .createSignedUrl(
+            payment.payment_proof_path,
+            60 * 60
+          );
+
+      if (signedUrlError) {
+        console.warn(
+          `Unable to create signed payment-proof URL for ${
+            payment.booking_no || payment.id
+          }:`,
+          signedUrlError.message
+        );
+      } else {
+        payment_proof_url =
+          signedUrlData?.signedUrl ?? null;
+      }
     }
 
-    return NextResponse.json(
-      {
-        success: true,
-        payments: data || [],
-      },
-      {
-        headers: {
-          "Cache-Control": "no-store, max-age=0",
-        },
-      }
-    );
+    return {
+      ...payment,
+      payment_proof_url,
+    };
+  })
+);
+
+return NextResponse.json(
+  {
+    success: true,
+    payments,
+  },
+  {
+    headers: {
+      "Cache-Control": "no-store, max-age=0",
+    },
+  }
+);
   } catch (error) {
     console.error("Payments GET API error:", error);
 

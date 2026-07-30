@@ -26,7 +26,10 @@ type PaymentOrder = {
   price: number | string | null;
   status: string | null;
   created_at: string | null;
-};
+
+ payment_proof_path: string | null;
+ payment_proof_url: string | null;
+ };
 
 type PaymentAction = "approve" | "reject" | "refund" | "reset";
 
@@ -90,6 +93,12 @@ export default function PaymentsCenter() {
   >("All");
   const [methodFilter, setMethodFilter] = useState("All");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  const [selectedReceipt, setSelectedReceipt] =
+  useState<string | null>(null);
+
+   const [selectedBooking, setSelectedBooking] =
+  useState<string | null>(null);
 
   const loadPayments = useCallback(async (showFullLoader = false) => {
     if (showFullLoader) {
@@ -528,6 +537,20 @@ export default function PaymentsCenter() {
                     </div>
 
                     <div className="flex min-w-[220px] flex-col gap-2">
+                      {payment.payment_proof_url && (
+  <button
+    type="button"
+    onClick={() => {
+      setSelectedReceipt(payment.payment_proof_url);
+      setSelectedBooking(
+        payment.booking_no || `Order #${payment.id}`
+      );
+    }}
+    className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 font-extrabold text-blue-700 transition hover:bg-blue-100"
+  >
+    👁 View Receipt
+  </button>
+)}
                       {payment.payment_method === "GCash" &&
                         currentStatus === "For Verification" && (
                           <>
@@ -599,6 +622,57 @@ export default function PaymentsCenter() {
           </div>
         )}
       </div>
+
+    {selectedReceipt && (
+  <div
+    role="dialog"
+    aria-modal="true"
+    aria-label="Payment receipt preview"
+    className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+    onClick={() => {
+      setSelectedReceipt(null);
+      setSelectedBooking(null);
+    }}
+  >
+    <div
+      className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-3xl bg-white shadow-2xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
+        <div>
+          <p className="text-xs font-extrabold uppercase tracking-wider text-violet-500">
+            Payment receipt
+          </p>
+
+          <h3 className="mt-1 break-all text-lg font-extrabold text-slate-950">
+            {selectedBooking || "Selected booking"}
+          </h3>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedReceipt(null);
+            setSelectedBooking(null);
+          }}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-extrabold text-slate-700 hover:bg-slate-50"
+        >
+          ✕ Close
+        </button>
+      </div>
+
+      <div className="max-h-[78vh] overflow-auto bg-slate-100 p-4 md:p-6">
+        <img
+          src={selectedReceipt}
+          alt={`Payment receipt for ${
+            selectedBooking || "selected booking"
+          }`}
+          className="mx-auto max-h-[72vh] max-w-full rounded-2xl bg-white object-contain shadow-lg"
+            />
+                     </div>
+                 </div>
+              </div>
+             )}
     </section>
   );
 }

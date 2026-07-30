@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createAdminClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -12,11 +12,6 @@ const ALLOWED_FILE_TYPES = new Set([
   "image/webp",
 ]);
 
-const MANUAL_ONLINE_PAYMENT_METHODS = new Set([
-  "GCash",
-  "Maya",
-]);
-
 type PaymentOrderRow = {
   id: number;
   booking_no: string;
@@ -26,27 +21,6 @@ type PaymentOrderRow = {
   payment_proof_path: string | null;
   status: string | null;
 };
-
-function createAdminClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is missing.");
-  }
-
-  if (!serviceRoleKey) {
-    throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing.");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-      detectSessionInUrl: false,
-    },
-  });
-}
 
 function normalizePhone(value: string) {
   return value.replace(/\D/g, "");
@@ -60,16 +34,21 @@ function getFileExtension(file: File) {
   switch (file.type) {
     case "image/jpeg":
       return "jpg";
+
     case "image/png":
       return "png";
+
     case "image/webp":
       return "webp";
+
     default:
       return "";
   }
 }
 
 export async function POST(request: Request) {
+  let uploadedProofPath: string | null = null;
+
   try {
     const formData = await request.formData();
 
@@ -89,7 +68,10 @@ export async function POST(request: Request) {
 
     if (!bookingNo) {
       return NextResponse.json(
-        { success: false, error: "Booking number is required." },
+        {
+          success: false,
+          error: "Booking number is required.",
+        },
         { status: 400 }
       );
     }
@@ -98,7 +80,8 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Enter the sender phone number in 09XXXXXXXXX format.",
+          error:
+            "Enter the sender phone number in 09XXXXXXXXX format.",
         },
         { status: 400 }
       );
@@ -117,7 +100,10 @@ export async function POST(request: Request) {
 
     if (!(proofFile instanceof File)) {
       return NextResponse.json(
-        { success: false, error: "Payment proof image is required." },
+        {
+          success: false,
+          error: "Payment proof image is required.",
+        },
         { status: 400 }
       );
     }
@@ -126,13 +112,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "Only JPG, PNG, or WEBP images are allowed.",
+          error: "Only JPG, PNG, or WebP images are allowed.",
         },
         { status: 415 }
       );
     }
 
-    if (proofFile.size <= 0 || proofFile.size > MAX_FILE_SIZE_BYTES) {
+    if (
+      proofFile.size <= 0 ||
+      proofFile.size > MAX_FILE_SIZE_BYTES
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -142,15 +131,28 @@ export async function POST(request: Request) {
       );
     }
 
+    const extension = getFileExtension(proofFile);
+
+    if (!extension) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Unsupported payment-proof image format.",
+        },
+        { status: 415 }
+      );
+    }
+
     const supabaseAdmin = createAdminClient();
 
-    const { data: order, error: orderError } = await supabaseAdmin
-      .from("orders")
-      .select(
-        "id, booking_no, sender_phone, payment_method, payment_status, payment_proof_path, status"
-      )
-      .eq("booking_no", bookingNo)
-      .maybeSingle<PaymentOrderRow>();
+    const { data: order, error: orderError } =
+      await supabaseAdmin
+        .from("orders")
+        .select(
+          "id, booking_no, sender_phone, payment_method, payment_status, payment_proof_path, status"
+        )
+        .eq("booking_no", bookingNo)
+        .maybeSingle<PaymentOrderRow>();
 
     if (orderError) {
       throw new Error(orderError.message);
@@ -158,36 +160,33 @@ export async function POST(request: Request) {
 
     if (!order) {
       return NextResponse.json(
-        { success: false, error: "Booking not found." },
+        {
+          success: false,
+          error: "Booking not found.",
+        },
         { status: 404 }
       );
     }
 
-    if (normalizePhone(order.sender_phone || "") !== senderPhone) {
+    if (
+      normalizePhone(order.sender_phone || "") !== senderPhone
+    ) {
       return NextResponse.json(
         {
           success: false,
-          error: "The sender phone number does not match this booking.",
+          error:
+            "The sender phone number does not match this booking.",
         },
         { status: 403 }
       );
     }
 
-    if (!order.payment_method) {
+    if (order.payment_method !== "GCash") {
       return NextResponse.json(
         {
           success: false,
-          error: "This booking has no payment method.",
-        },
-        { status: 409 }
-      );
-    }
-
-    if (!MANUAL_ONLINE_PAYMENT_METHODS.has(order.payment_method)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: `${order.payment_method} does not require payment proof submission.`,
+          error:
+            "Only bookings using GCash can submit payment proof.",
         },
         { status: 409 }
       );
@@ -197,7 +196,8 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: "A cancelled booking cannot accept payment proof.",
+          error:
+            "A cancelled booking cannot accept payment proof.",
         },
         { status: 409 }
       );
@@ -213,84 +213,127 @@ export async function POST(request: Request) {
       );
     }
 
-    if (order.payment_status === "For Verification") {
+    if (order.payment_status === "Refunded") {
       return NextResponse.json(
         {
           success: false,
-          error: "A payment proof is already waiting for verification.",
+          error:
+            "A refunded payment cannot be submitted again.",
         },
         { status: 409 }
       );
     }
 
-    const extension = getFileExtension(proofFile);
+    if (order.payment_status === "For Verification") {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "A payment proof is already waiting for verification.",
+        },
+        { status: 409 }
+      );
+    }
+
+    const safeBookingNo = bookingNo.replace(
+      /[^A-Z0-9-_]/g,
+      "-"
+    );
+
     const uniqueSuffix = crypto.randomUUID();
-    const proofPath = `${bookingNo}/${Date.now()}-${uniqueSuffix}.${extension}`;
+
+    uploadedProofPath =
+      `receipts/${safeBookingNo}/` +
+      `${Date.now()}-${uniqueSuffix}.${extension}`;
 
     const fileBuffer = await proofFile.arrayBuffer();
 
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from(PAYMENT_PROOFS_BUCKET)
-      .upload(proofPath, fileBuffer, {
-        contentType: proofFile.type,
-        cacheControl: "3600",
-        upsert: false,
-      });
+    const { error: uploadError } =
+      await supabaseAdmin.storage
+        .from(PAYMENT_PROOFS_BUCKET)
+        .upload(uploadedProofPath, fileBuffer, {
+          contentType: proofFile.type,
+          cacheControl: "3600",
+          upsert: false,
+        });
 
     if (uploadError) {
-      throw new Error(`Payment proof upload failed: ${uploadError.message}`);
+      throw new Error(
+        `Payment proof upload failed: ${uploadError.message}`
+      );
     }
 
     const now = new Date().toISOString();
 
-    const { data: updatedOrder, error: updateError } = await supabaseAdmin
-      .from("orders")
-      .update({
-        payment_reference: paymentReference,
-        payment_proof_path: proofPath,
-        payment_status: "For Verification",
-        payment_submitted_at: now,
-        payment_rejection_reason: null,
-        payment_verified_at: null,
-        payment_verified_by: null,
-      })
-      .eq("id", order.id)
-      .select(
-        "booking_no, payment_method, payment_status, payment_reference, payment_submitted_at"
-      )
-      .single();
+    const { data: updatedOrder, error: updateError } =
+      await supabaseAdmin
+        .from("orders")
+        .update({
+          payment_reference: paymentReference,
+          payment_proof_path: uploadedProofPath,
+          payment_proof_url: null,
+          payment_status: "For Verification",
+          payment_submitted_at: now,
+          payment_rejection_reason: null,
+          payment_verified_at: null,
+          payment_verified_by: null,
+        })
+        .eq("id", order.id)
+        .select(
+          "booking_no, payment_method, payment_status, payment_reference, payment_submitted_at"
+        )
+        .single();
 
     if (updateError) {
       await supabaseAdmin.storage
         .from(PAYMENT_PROOFS_BUCKET)
-        .remove([proofPath]);
+        .remove([uploadedProofPath]);
+
+      uploadedProofPath = null;
 
       throw new Error(updateError.message);
     }
 
     if (
       order.payment_proof_path &&
-      order.payment_proof_path !== proofPath
+      order.payment_proof_path !== uploadedProofPath
     ) {
-      const { error: removeOldProofError } = await supabaseAdmin.storage
-        .from(PAYMENT_PROOFS_BUCKET)
-        .remove([order.payment_proof_path]);
+      const { error: removeOldProofError } =
+        await supabaseAdmin.storage
+          .from(PAYMENT_PROOFS_BUCKET)
+          .remove([order.payment_proof_path]);
 
       if (removeOldProofError) {
         console.warn(
           "Previous payment proof could not be removed:",
-          removeOldProofError
+          removeOldProofError.message
         );
       }
     }
 
     return NextResponse.json({
       success: true,
-      message: "Payment proof submitted for verification.",
+      message:
+        "Payment proof submitted and is now waiting for admin verification.",
       payment: updatedOrder,
     });
   } catch (error) {
     console.error("Payment proof submission error:", error);
+
+    if (uploadedProofPath) {
+      try {
+        const supabaseAdmin = createAdminClient();
+
+        await supabaseAdmin.storage
+          .from(PAYMENT_PROOFS_BUCKET)
+          .remove([uploadedProofPath]);
+      } catch (cleanupError) {
+        console.warn(
+          "Unable to clean up uploaded payment proof:",
+          cleanupError
+        );
+      }
+    }
 
     return NextResponse.json(
       {
@@ -298,7 +341,7 @@ export async function POST(request: Request) {
         error:
           error instanceof Error
             ? error.message
-            : "Unknown server error.",
+            : "Unable to submit payment proof.",
       },
       { status: 500 }
     );

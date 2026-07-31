@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { requireCustomer } from "@/lib/require-role";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ type PaymentOrderRow = {
   payment_status: string | null;
   payment_proof_path: string | null;
   status: string | null;
+  customer_user_id: string | null;
 };
 
 function normalizePhone(value: string) {
@@ -50,6 +52,12 @@ export async function POST(request: Request) {
   let uploadedProofPath: string | null = null;
 
   try {
+    const authorization = await requireCustomer();
+
+    if (!authorization.authorized) {
+      return authorization.response;
+    }
+
     const formData = await request.formData();
 
     const bookingNo = String(formData.get("booking_no") || "")
@@ -149,7 +157,7 @@ export async function POST(request: Request) {
       await supabaseAdmin
         .from("orders")
         .select(
-          "id, booking_no, sender_phone, payment_method, payment_status, payment_proof_path, status"
+          "id, booking_no, sender_phone, payment_method, payment_status, payment_proof_path, status, customer_user_id"
         )
         .eq("booking_no", bookingNo)
         .maybeSingle<PaymentOrderRow>();
@@ -165,6 +173,16 @@ export async function POST(request: Request) {
           error: "Booking not found.",
         },
         { status: 404 }
+      );
+    }
+
+    if (order.customer_user_id !== authorization.userId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "This booking does not belong to your customer account.",
+        },
+        { status: 403 }
       );
     }
 

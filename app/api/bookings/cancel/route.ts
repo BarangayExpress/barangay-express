@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { requireCustomer } from "@/lib/require-role";
 
 type CancellationPayload = {
   booking_no?: string;
@@ -12,6 +13,7 @@ type OrderRow = {
   booking_no: string;
   sender_phone: string | null;
   status: string | null;
+  customer_user_id: string | null;
 };
 
 const customerCancellableStatuses = new Set([
@@ -33,6 +35,12 @@ function normalizePhone(value: string) {
 
 export async function POST(request: Request) {
   try {
+    const authorization = await requireCustomer();
+
+    if (!authorization.authorized) {
+      return authorization.response;
+    }
+
     const body = (await request.json()) as CancellationPayload;
 
     const bookingNo = cleanText(body.booking_no, 80).toUpperCase();
@@ -87,7 +95,9 @@ export async function POST(request: Request) {
     const { data: order, error: orderError } =
       await supabaseAdmin
         .from("orders")
-        .select("id, booking_no, sender_phone, status")
+        .select(
+          "id, booking_no, sender_phone, status, customer_user_id"
+        )
         .eq("booking_no", bookingNo)
         .maybeSingle<OrderRow>();
 
@@ -105,7 +115,11 @@ export async function POST(request: Request) {
     */
     const storedPhone = normalizePhone(order?.sender_phone || "");
 
-    if (!order || storedPhone !== senderPhone) {
+    if (
+      !order ||
+      order.customer_user_id !== authorization.userId ||
+      storedPhone !== senderPhone
+    ) {
       return NextResponse.json(
         {
           success: false,

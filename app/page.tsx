@@ -39,6 +39,13 @@ export default function Home() {
             <a href="/#contact" className="transition hover:text-blue-600">
               Contact
             </a>
+
+            <a
+              href="/customer/login"
+              className="rounded-xl border border-blue-200 px-4 py-2 text-blue-700 transition hover:bg-blue-50"
+            >
+              Customer Login
+            </a>
           </nav>
         </div>
       </header>
@@ -79,6 +86,16 @@ export default function Home() {
                 Track Order
               </a>
             </div>
+
+            <p className="mt-5 text-sm font-semibold text-blue-100">
+              Wala pang customer account?{" "}
+              <a
+                href="/customer/signup"
+                className="font-black text-white underline underline-offset-4"
+              >
+                Sign up free
+              </a>
+            </p>
 
             <div className="mt-10 grid max-w-xl grid-cols-3 gap-4">
               <div>

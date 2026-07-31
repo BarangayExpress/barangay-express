@@ -5,10 +5,10 @@ import {
   BusinessSettingsRow,
   evaluateBusinessAvailability,
 } from "@/lib/business-availability";
-import { requireAdmin } from "@/lib/require-role";
+import { requireAdmin, requireCustomer } from "@/lib/require-role";
+import { createManyNotifications } from "@/lib/notifications";
 import {
   calculateDeliveryFee,
-  calculateTotalAmount,
   normalizeOrderAmount,
 } from "@/lib/fare";
 import { getRoadRouteSummary } from "@/lib/osrm";
@@ -56,9 +56,11 @@ type ValidatedBookingInput = {
 type BookingInsertRow = ValidatedBookingInput & {
   price: number;
   status: "Pending";
+  customer_user_id: string;
 };
 
 type CreatedBooking = {
+  id: number;
   booking_no: string;
   price: number;
   order_amount: number;
@@ -332,6 +334,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const authorization = await requireCustomer();
+
+    if (!authorization.authorized) {
+      return authorization.response;
+    }
+
     const body = (await request.json()) as BookingPayload;
     const validation = validateBookingInput(body);
 
@@ -396,15 +404,11 @@ export async function POST(request: Request) {
       routeSummary.distanceKm
     );
 
-    const totalAmount = calculateTotalAmount(
-      deliveryFee,
-      validated.order_amount
-    );
-
     const bookingToInsert: BookingInsertRow = {
       ...validated,
       price: deliveryFee,
       status: "Pending",
+      customer_user_id: authorization.userId,
     };
 
     const { data: createdBooking, error: insertError } =
@@ -412,7 +416,7 @@ export async function POST(request: Request) {
         .from("orders")
         .insert(bookingToInsert)
         .select(
-          "booking_no, price, order_amount, total_amount"
+          "id, booking_no, price, order_amount, total_amount"
         )
         .single<CreatedBooking>();
 
@@ -440,6 +444,32 @@ export async function POST(request: Request) {
         "Telegram notification failed:",
         telegramError
       );
+    }
+
+    try {
+      await createManyNotifications({
+        notifications: [
+          {
+            orderId: createdBooking.id,
+            bookingNo: createdBooking.booking_no,
+            recipientType: "customer",
+            recipientUserId: authorization.userId,
+            notificationType: "booking_created",
+            title: "Booking Confirmed",
+            message: `Natanggap na ang booking ${createdBooking.booking_no}.`,
+          },
+          {
+            orderId: createdBooking.id,
+            bookingNo: createdBooking.booking_no,
+            recipientType: "admin",
+            notificationType: "new_booking",
+            title: "New Customer Booking",
+            message: `May bagong booking: ${createdBooking.booking_no}.`,
+          },
+        ],
+      });
+    } catch (notificationError) {
+      console.error("In-app notification failed:", notificationError);
     }
 
     return NextResponse.json(

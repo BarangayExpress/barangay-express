@@ -26,7 +26,6 @@ export default function RiderLoginPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
- console.log("Rider login handler started");
     setErrorMessage("");
 
     const cleanEmail = email.trim().toLowerCase();
@@ -209,7 +208,7 @@ export default function RiderLoginPage() {
                   }
                   placeholder="rider@example.com"
                   disabled={loading}
-                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 !text-white !caret-white outline-none transition placeholder:!text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
 
@@ -233,7 +232,7 @@ export default function RiderLoginPage() {
                     }
                     placeholder="Enter your password"
                     disabled={loading}
-                    className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 pr-24 text-white outline-none transition placeholder:text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-2xl border border-white/10 bg-white/10 px-4 py-4 pr-24 !text-white !caret-white outline-none transition placeholder:!text-slate-500 focus:border-sky-400 focus:ring-4 focus:ring-sky-400/10 disabled:cursor-not-allowed disabled:opacity-60"
                   />
 
                   <button

@@ -101,6 +101,10 @@ export async function requireRider() {
   return requireRole(["rider"]);
 }
 
+export async function requireCustomer() {
+  return requireRole(["customer"]);
+}
+
 export async function requireAdminOrRider() {
   return requireRole(["admin", "rider"]);
 }

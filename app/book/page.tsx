@@ -51,7 +51,22 @@ type BookingForm = {
   package_type: string;
   notes: string;
   payment_method: string;
-  price: string;
+
+  delivery_fee: string;
+  order_amount: string;
+  total_amount: string;
+};
+type BookingApiResponse = {
+  success: boolean;
+  booking_no?: string;
+  error?: string;
+  pricing?: {
+    distance_km: number;
+    duration_minutes: number;
+    delivery_fee: number;
+    order_amount: number;
+    total_amount: number;
+  };
 };
 
 const initialForm: BookingForm = {
@@ -64,7 +79,10 @@ const initialForm: BookingForm = {
   package_type: "Document",
   notes: "",
   payment_method: "Cash",
-  price: "",
+
+  delivery_fee: "",
+  order_amount: "0",
+  total_amount: "",
 };
 
 const packageOptions = [
@@ -131,17 +149,43 @@ export default function BookPage() {
   );
 
   function updateField(
-    event: ChangeEvent<
-      HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-    >
-  ) {
-    const { name, value } = event.target;
+  event: ChangeEvent<
+    HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+  >
+) {
+  const { name, value } = event.target;
 
-    setForm((currentForm) => ({
-      ...currentForm,
-      [name]: value,
-    }));
+  setForm((currentForm) => ({
+    ...currentForm,
+    [name]: value,
+  }));
+}
+ function updateOrderAmount(
+  event: ChangeEvent<HTMLInputElement>
+) {
+  const rawValue = event.target.value.replace(/[^\d.]/g, "");
+
+  const orderAmount = Number(rawValue || 0);
+  const deliveryFee = Number(form.delivery_fee || 0);
+
+  if (
+    !Number.isFinite(orderAmount) ||
+    orderAmount < 0 ||
+    orderAmount > 100000
+  ) {
+    return;
   }
+
+  setForm((currentForm) => ({
+    ...currentForm,
+    order_amount: rawValue,
+    total_amount: String(
+      Math.round((deliveryFee + orderAmount) * 100) / 100
+    ),
+  }));
+}
+
+
 
   function selectPackage(packageType: string) {
     setForm((currentForm) => ({
@@ -158,27 +202,53 @@ export default function BookPage() {
   }
 
   const handleRouteChange = useCallback(
-    (distanceKm: number | null, durationMinutes: number | null) => {
-      setRouteDistanceKm(distanceKm);
-      setRouteDurationMinutes(durationMinutes);
+  (
+    distanceKm: number | null,
+    durationMinutes: number | null
+  ) => {
+    setRouteDistanceKm(distanceKm);
+    setRouteDurationMinutes(durationMinutes);
 
-      if (distanceKm === null) {
-        return;
-      }
-
-      const baseFare = 49;
-      const includedKm = 2;
-      const extraKmRate = 10;
-      const extraKm = Math.max(0, Math.ceil(distanceKm - includedKm));
-      const calculatedFare = baseFare + extraKm * extraKmRate;
-
+    if (distanceKm === null) {
       setForm((currentForm) => ({
         ...currentForm,
-        price: String(calculatedFare),
+        delivery_fee: "",
+        total_amount: String(
+          Number(currentForm.order_amount || 0)
+        ),
       }));
-    },
-    []
-  );
+
+      return;
+    }
+
+    const baseFare = 49;
+    const includedKm = 2;
+    const extraKmRate = 10;
+
+    const extraKm = Math.max(
+      0,
+      Math.ceil(distanceKm - includedKm)
+    );
+
+    const calculatedFare =
+      baseFare + extraKm * extraKmRate;
+
+    setForm((currentForm) => {
+      const orderAmount = Number(
+        currentForm.order_amount || 0
+      );
+
+      return {
+        ...currentForm,
+        delivery_fee: String(calculatedFare),
+        total_amount: String(
+          calculatedFare + orderAmount
+        ),
+      };
+    });
+  },
+  []
+);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -195,18 +265,20 @@ export default function BookPage() {
       !form.dropoff_address.trim() ||
       !pickupPoint ||
       !dropoffPoint ||
-      !form.price
+      !form.delivery_fee
     ) {
       setErrorMessage("Pakikumpleto ang lahat ng required fields.");
       return;
     }
 
-    const price = Number(form.price);
+    const deliveryFee = Number(form.delivery_fee);
+    const orderAmount = Number(form.order_amount || 0);
+    const totalAmount = Number(form.total_amount);
 
-    if (!Number.isFinite(price) || price <= 0) {
-      setErrorMessage("Maglagay ng valid na delivery fee.");
-      return;
-    }
+    if (!Number.isFinite(deliveryFee) || deliveryFee <= 0) {
+  setErrorMessage("Maglagay ng valid na delivery fee.");
+  return;
+}
 
     setIsSubmitting(true);
 
@@ -230,7 +302,9 @@ export default function BookPage() {
           notes: form.notes.trim(),
           payment_method: form.payment_method,
           status: "Pending",
-          price,
+          price: deliveryFee,
+          order_amount: orderAmount,
+          total_amount: totalAmount,
           pickup_latitude: pickupPoint.latitude,
           pickup_longitude: pickupPoint.longitude,
           dropoff_latitude: dropoffPoint.latitude,
@@ -247,7 +321,7 @@ export default function BookPage() {
       setBookingNumber(newBookingNumber);
       setCompletedSenderPhone(form.sender_phone.trim());
       setCompletedPaymentMethod(form.payment_method);
-      setCompletedAmount(price);
+      setCompletedAmount(totalAmount);
       setForm(initialForm);
       setPickupPoint(null);
       setDropoffPoint(null);
@@ -683,36 +757,83 @@ export default function BookPage() {
                     })}
                   </div>
 
-                  <label className="mt-6 block">
-                    <span className="mb-2 block text-sm font-bold text-slate-700">
-                      Delivery fee *
-                    </span>
+                  <div className="mt-6 grid gap-5 md:grid-cols-2">
+  <label className="block">
+    <span className="mb-2 block text-sm font-bold text-slate-700">
+      Estimated delivery fee
+    </span>
 
-                    <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white transition focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
-                      <span className="flex items-center bg-blue-50 px-5 text-xl font-extrabold text-blue-700">
-                        ₱
-                      </span>
+    <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
+      <span className="flex items-center bg-blue-50 px-5 text-xl font-extrabold text-blue-700">
+        ₱
+      </span>
 
-                      <input
-                        required
-                        type="number"
-                        name="price"
-                        value={form.price}
-                        onChange={updateField}
-                        placeholder="80"
-                        min="1"
-                        step="1"
-                        inputMode="numeric"
-                        className="w-full px-4 py-4 text-lg font-bold outline-none"
-                      />
-                    </div>
+      <input
+        readOnly
+        type="text"
+        value={form.delivery_fee}
+        placeholder="Select map locations"
+        className="w-full cursor-not-allowed bg-slate-100 px-4 py-4 text-lg font-bold text-slate-800 outline-none"
+      />
+    </div>
 
-                    <p className="mt-2 text-sm leading-6 text-slate-500">
-                      Automatic fare: ₱49 sa unang 2 km, pagkatapos ay ₱10
-                      bawat succeeding kilometer.
-                    </p>
-                  </label>
+    <p className="mt-2 text-sm leading-6 text-slate-500">
+      Automatic estimate: ₱49 sa unang 2 km, pagkatapos ay ₱10
+      bawat succeeding kilometer. Server ang magkukumpirma ng final fee.
+    </p>
+  </label>
 
+  <label className="block">
+    <span className="mb-2 block text-sm font-bold text-slate-700">
+      Order amount / item cost
+      <span className="ml-1 font-semibold text-slate-400">
+        (optional)
+      </span>
+    </span>
+
+    <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white transition focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
+      <span className="flex items-center bg-amber-50 px-5 text-xl font-extrabold text-amber-700">
+        ₱
+      </span>
+
+      <input
+        type="number"
+        name="order_amount"
+        value={form.order_amount}
+        onChange={updateOrderAmount}
+        placeholder="0"
+        min="0"
+        max="100000"
+        step="0.01"
+        inputMode="decimal"
+        className="w-full px-4 py-4 text-lg font-bold outline-none"
+      />
+    </div>
+
+    <p className="mt-2 text-sm leading-6 text-slate-500">
+      Halimbawa: presyo ng pagkain o item na bibilhin ng rider.
+      Ilagay ang ₱0 kung delivery lamang.
+    </p>
+  </label>
+</div>
+
+<div className="mt-5 rounded-3xl bg-gradient-to-br from-blue-950 to-blue-700 p-6 text-white">
+  <div className="flex items-center justify-between gap-4">
+    <div>
+      <p className="text-sm font-bold uppercase tracking-wider text-blue-200">
+        Estimated total to pay
+      </p>
+
+      <p className="mt-2 text-sm font-semibold text-blue-100">
+        Order amount + delivery fee
+      </p>
+    </div>
+
+    <p className="text-4xl font-extrabold text-sky-300">
+      ₱{form.total_amount || "0"}
+    </p>
+  </div>
+</div>
                   <label className="mt-6 block">
                     <span className="mb-2 block text-sm font-bold text-slate-700">
                       Package description o special instructions
@@ -838,15 +959,37 @@ export default function BookPage() {
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-blue-950 p-5 text-white">
-                      <p className="text-sm font-semibold text-blue-200">
-                        Estimated delivery fee
-                      </p>
+                    <div className="space-y-3 rounded-2xl bg-blue-950 p-5 text-white">
+  <div className="flex items-center justify-between gap-3">
+    <p className="text-sm font-semibold text-blue-200">
+      Delivery fee
+    </p>
 
-                      <p className="mt-2 text-4xl font-extrabold text-sky-300">
-                        ₱{form.price || "0"}
-                      </p>
-                    </div>
+    <p className="font-extrabold">
+      ₱{form.delivery_fee || "0"}
+    </p>
+  </div>
+
+  <div className="flex items-center justify-between gap-3">
+    <p className="text-sm font-semibold text-blue-200">
+      Order amount
+    </p>
+
+    <p className="font-extrabold">
+      ₱{form.order_amount || "0"}
+    </p>
+  </div>
+
+  <div className="border-t border-white/20 pt-4">
+    <p className="text-sm font-semibold text-blue-200">
+      Estimated total to pay
+    </p>
+
+    <p className="mt-2 text-4xl font-extrabold text-sky-300">
+      ₱{form.total_amount || "0"}
+    </p>
+  </div>
+</div>
                   </div>
                 </div>
 
@@ -864,9 +1007,10 @@ export default function BookPage() {
                 </div>
          </aside>
     </div>
+    
   </BusinessAvailabilityGate>
  )}
-        </div>
+         </div>
       </section>
 
       <footer className="bg-blue-950 px-6 py-8 text-center text-blue-200">

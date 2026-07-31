@@ -6,6 +6,12 @@ import {
   evaluateBusinessAvailability,
 } from "@/lib/business-availability";
 import { requireAdmin } from "@/lib/require-role";
+import {
+  calculateDeliveryFee,
+  calculateTotalAmount,
+  normalizeOrderAmount,
+} from "@/lib/fare";
+import { getRoadRouteSummary } from "@/lib/osrm";
 
 type BookingPayload = {
   booking_no?: string;
@@ -17,15 +23,19 @@ type BookingPayload = {
   dropoff_address?: string;
   package_type?: string;
   payment_method?: string;
-  price?: number;
+  order_amount?: number;
   notes?: string;
   pickup_latitude?: number;
   pickup_longitude?: number;
   dropoff_latitude?: number;
   dropoff_longitude?: number;
+
+  // Maaari pa ring ipadala ng lumang frontend,
+  // pero hindi na ito pagkakatiwalaan ng server.
+  price?: number;
 };
 
-type ValidatedBooking = {
+type ValidatedBookingInput = {
   booking_no: string;
   sender_name: string;
   sender_phone: string;
@@ -35,13 +45,24 @@ type ValidatedBooking = {
   dropoff_address: string;
   package_type: string;
   payment_method: string;
-  price: number;
-  status: "Pending";
+  order_amount: number;
   notes: string | null;
   pickup_latitude: number;
   pickup_longitude: number;
   dropoff_latitude: number;
   dropoff_longitude: number;
+};
+
+type BookingInsertRow = ValidatedBookingInput & {
+  price: number;
+  status: "Pending";
+};
+
+type CreatedBooking = {
+  booking_no: string;
+  price: number;
+  order_amount: number;
+  total_amount: number;
 };
 
 const allowedPackageTypes = new Set([
@@ -56,7 +77,9 @@ const allowedPackageTypes = new Set([
 const allowedPaymentMethods = new Set(["Cash", "GCash"]);
 
 function cleanText(value: unknown, maximumLength: number) {
-  if (typeof value !== "string") return "";
+  if (typeof value !== "string") {
+    return "";
+  }
 
   return value.trim().slice(0, maximumLength);
 }
@@ -78,10 +101,12 @@ function isValidCoordinate(
   );
 }
 
-function validateBooking(body: BookingPayload):
+function validateBookingInput(
+  body: BookingPayload
+):
   | {
       success: true;
-      booking: ValidatedBooking;
+      booking: ValidatedBookingInput;
     }
   | {
       success: false;
@@ -97,7 +122,6 @@ function validateBooking(body: BookingPayload):
   const packageType = cleanText(body.package_type, 50);
   const paymentMethod = cleanText(body.payment_method, 50);
   const notes = cleanText(body.notes, 1000);
-  const price = Number(body.price);
 
   if (!bookingNo || !/^BE-\d{10,}$/.test(bookingNo)) {
     return {
@@ -162,13 +186,6 @@ function validateBooking(body: BookingPayload):
     };
   }
 
-  if (!Number.isFinite(price) || price <= 0 || price > 100000) {
-    return {
-      success: false,
-      error: "Invalid delivery fee.",
-    };
-  }
-
   if (
     !isValidCoordinate(body.pickup_latitude, -90, 90) ||
     !isValidCoordinate(body.pickup_longitude, -180, 180) ||
@@ -178,6 +195,20 @@ function validateBooking(body: BookingPayload):
     return {
       success: false,
       error: "Valid pickup and drop-off map locations are required.",
+    };
+  }
+
+  let orderAmount: number;
+
+  try {
+    orderAmount = normalizeOrderAmount(body.order_amount ?? 0);
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Invalid order amount.",
     };
   }
 
@@ -193,8 +224,7 @@ function validateBooking(body: BookingPayload):
       dropoff_address: dropoffAddress,
       package_type: packageType,
       payment_method: paymentMethod,
-      price: Math.round(price),
-      status: "Pending",
+      order_amount: orderAmount,
       notes: notes || null,
       pickup_latitude: body.pickup_latitude,
       pickup_longitude: body.pickup_longitude,
@@ -204,7 +234,10 @@ function validateBooking(body: BookingPayload):
   };
 }
 
-async function sendTelegramNotification(booking: ValidatedBooking) {
+async function sendTelegramNotification(
+  booking: BookingInsertRow,
+  totalAmount: number
+) {
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
 
@@ -228,7 +261,9 @@ async function sendTelegramNotification(booking: ValidatedBooking) {
     "",
     `Package: ${booking.package_type}`,
     `Payment: ${booking.payment_method}`,
-    `Fee: ₱${booking.price}`,
+    `Order amount: ₱${booking.order_amount.toFixed(2)}`,
+    `Delivery fee: ₱${booking.price.toFixed(2)}`,
+    `TOTAL TO COLLECT: ₱${totalAmount.toFixed(2)}`,
     `Status: ${booking.status}`,
     booking.notes ? `Notes: ${booking.notes}` : "",
   ]
@@ -251,6 +286,7 @@ async function sendTelegramNotification(booking: ValidatedBooking) {
 
   if (!response.ok) {
     const telegramError = await response.text();
+
     throw new Error(`Telegram error: ${telegramError}`);
   }
 }
@@ -262,8 +298,10 @@ export async function GET() {
     if (!authorization.authorized) {
       return authorization.response;
     }
-   const serverSupabase = await createServerClient();
-   const { data, error } = await serverSupabase
+
+    const serverSupabase = await createServerClient();
+
+    const { data, error } = await serverSupabase
       .from("orders")
       .select("*")
       .order("created_at", { ascending: false });
@@ -295,7 +333,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as BookingPayload;
-    const validation = validateBooking(body);
+    const validation = validateBookingInput(body);
 
     if (!validation.success) {
       return NextResponse.json(
@@ -341,9 +379,42 @@ export async function POST(request: Request) {
       );
     }
 
-    const { error: insertError } = await supabaseAdmin
-      .from("orders")
-      .insert(validation.booking);
+    const validated = validation.booking;
+
+    const routeSummary = await getRoadRouteSummary(
+      {
+        latitude: validated.pickup_latitude,
+        longitude: validated.pickup_longitude,
+      },
+      {
+        latitude: validated.dropoff_latitude,
+        longitude: validated.dropoff_longitude,
+      }
+    );
+
+    const deliveryFee = calculateDeliveryFee(
+      routeSummary.distanceKm
+    );
+
+    const totalAmount = calculateTotalAmount(
+      deliveryFee,
+      validated.order_amount
+    );
+
+    const bookingToInsert: BookingInsertRow = {
+      ...validated,
+      price: deliveryFee,
+      status: "Pending",
+    };
+
+    const { data: createdBooking, error: insertError } =
+      await supabaseAdmin
+        .from("orders")
+        .insert(bookingToInsert)
+        .select(
+          "booking_no, price, order_amount, total_amount"
+        )
+        .single<CreatedBooking>();
 
     if (insertError) {
       if (insertError.code === "23505") {
@@ -360,20 +431,44 @@ export async function POST(request: Request) {
     }
 
     try {
-      await sendTelegramNotification(validation.booking);
+      await sendTelegramNotification(
+        bookingToInsert,
+        Number(createdBooking.total_amount)
+      );
     } catch (telegramError) {
-      console.error("Telegram notification failed:", telegramError);
+      console.error(
+        "Telegram notification failed:",
+        telegramError
+      );
     }
 
     return NextResponse.json(
       {
         success: true,
-        booking_no: validation.booking.booking_no,
+        booking_no: createdBooking.booking_no,
+        pricing: {
+          distance_km:
+            Math.round(routeSummary.distanceKm * 100) / 100,
+          duration_minutes: routeSummary.durationMinutes,
+          delivery_fee: Number(createdBooking.price),
+          order_amount: Number(createdBooking.order_amount),
+          total_amount: Number(createdBooking.total_amount),
+        },
       },
       { status: 201 }
     );
   } catch (error) {
     console.error("Booking POST API error:", error);
+
+    const isRoutingError =
+      error instanceof Error &&
+      [
+        "routing service",
+        "road route",
+        "route was found",
+      ].some((keyword) =>
+        error.message.toLowerCase().includes(keyword)
+      );
 
     return NextResponse.json(
       {
@@ -383,7 +478,9 @@ export async function POST(request: Request) {
             ? error.message
             : "Unknown server error.",
       },
-      { status: 500 }
+      {
+        status: isRoutingError ? 502 : 500,
+      }
     );
   }
 }

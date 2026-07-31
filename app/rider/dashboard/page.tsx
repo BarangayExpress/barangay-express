@@ -27,7 +27,12 @@ type Order = {
   dropoff_address: string | null;
   package_type: string | null;
   notes: string | null;
+
   payment_method: string | null;
+  payment_status: string | null;
+  order_amount: number | string | null;
+  total_amount: number | string | null;
+
   status: string | null;
   price: number | string | null;
   created_at: string | null;
@@ -240,7 +245,7 @@ export default function RiderDashboardPage() {
         const { data: orderRows, error: ordersError } = await supabase
           .from("orders")
           .select(
-            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at"
+            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at"
           )
           .or(
             `and(status.eq.Pending,assigned_rider.is.null),assigned_rider.eq.${currentUser.id}`
@@ -303,83 +308,73 @@ export default function RiderDashboardPage() {
   }, [loadDashboard, supabase]);
 
   async function updateOrder(order: Order) {
-    if (!user) return;
+  if (!user) return;
 
-    const currentStatus = order.status || "Pending";
-    const action = WORKFLOW[currentStatus];
+  const currentStatus = order.status || "Pending";
+  const action = WORKFLOW[currentStatus];
 
-    if (!action) return;
+  if (!action) return;
 
-    if (
-      currentStatus === "Pending" &&
-      activeOrders.length >= MAX_ACTIVE_DELIVERIES
-    ) {
-      setErrorMessage(
-        "May active delivery ka pa. Kumpletuhin muna ito bago tumanggap ng panibagong order."
-      );
-      setActiveTab("active");
-      return;
-    }
-
-    setUpdatingId(order.id);
-    setErrorMessage("");
-
-    try {
-      const now = new Date().toISOString();
-      const updates: Record<string, string> = {
-        status: action.nextStatus,
-        [action.timestampColumn]: now,
-      };
-
-      if (currentStatus === "Pending") {
-        updates.assigned_rider = user.id;
-      }
-
-      let query = supabase.from("orders").update(updates).eq("id", order.id);
-
-      if (currentStatus === "Pending") {
-        query = query
-          .eq("status", "Pending")
-          .is("assigned_rider", null);
-      } else {
-        query = query.eq("assigned_rider", user.id);
-      }
-
-      const { data, error } = await query
-        .select(
-          "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at"
-        )
-        .maybeSingle<Order>();
-
-      if (error) throw new Error(error.message);
-
-      if (!data) {
-        throw new Error(
-          currentStatus === "Pending"
-            ? "Na-accept na ng ibang rider ang order na ito."
-            : "Hindi ma-update ang order."
-        );
-      }
-
-      setOrders((currentOrders) =>
-        currentOrders.map((item) => (item.id === order.id ? data : item))
-      );
-
-      if (currentStatus === "Pending") {
-        setActiveTab("active");
-      }
-    } catch (error) {
-      setErrorMessage(
-        error instanceof Error
-          ? error.message
-          : "May error habang ina-update ang order."
-      );
-      await loadDashboard(false);
-    } finally {
-      setUpdatingId(null);
-    }
+  if (
+    currentStatus === "Pending" &&
+    activeOrders.length >= MAX_ACTIVE_DELIVERIES
+  ) {
+    setErrorMessage(
+      "May active delivery ka pa. Kumpletuhin muna ito bago tumanggap ng panibagong order."
+    );
+    setActiveTab("active");
+    return;
   }
 
+  setUpdatingId(order.id);
+  setErrorMessage("");
+
+  try {
+    const response = await fetch(
+      "/api/rider/orders/status",
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          order_id: order.id,
+          next_status: action.nextStatus,
+        }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success || !result.order) {
+      throw new Error(
+        result.error || "Hindi ma-update ang order."
+      );
+    }
+
+    const updatedOrder = result.order as Order;
+
+    setOrders((currentOrders) =>
+      currentOrders.map((item) =>
+        item.id === order.id ? updatedOrder : item
+      )
+    );
+
+    if (currentStatus === "Pending") {
+      setActiveTab("active");
+    }
+  } catch (error) {
+    setErrorMessage(
+      error instanceof Error
+        ? error.message
+        : "May error habang ina-update ang order."
+    );
+
+    await loadDashboard(false);
+  } finally {
+    setUpdatingId(null);
+  }
+}
   async function logout() {
     await supabase.auth.signOut();
 
@@ -671,6 +666,9 @@ export default function RiderDashboardPage() {
             displayedOrders.map((order) => {
               const status = order.status || "Pending";
               const action = WORKFLOW[status];
+              const gcashLocked =status === "Pending" &&
+                    order.payment_method === "GCash" &&
+                    order.payment_status !== "Paid";
               const showPickupMap = [
                 "Pending",
                 "Accepted",
@@ -839,22 +837,26 @@ export default function RiderDashboardPage() {
                             <button
                               type="button"
                               disabled={
-                                updatingId === order.id ||
-                                (status === "Pending" && !canAcceptOrder)
-                              }
+                                      updatingId === order.id ||
+                                      (status === "Pending" && (!canAcceptOrder || gcashLocked))
+                                       }
                               onClick={() => updateOrder(order)}
                               title={
-                                status === "Pending" && !canAcceptOrder
-                                  ? "Complete your current delivery before accepting another booking."
+                                      gcashLocked
+                                    ? "Waiting for GCash payment verification."
+                                     : status === "Pending" && !canAcceptOrder
+                                    ? "Complete your current delivery before accepting another booking."
                                   : undefined
-                              }
+                                 }
                               className="rounded-2xl bg-white px-5 py-4 font-black text-blue-950 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 disabled:opacity-100"
                             >
                               {updatingId === order.id
-                                ? "Updating..."
-                                : status === "Pending" && !canAcceptOrder
-                                  ? "🔒 Finish Current Delivery First"
-                                  : action.label}
+                              ? "Updating..."
+                              : gcashLocked
+                              ? "💳 Waiting for Payment Verification"
+                               : status === "Pending" && !canAcceptOrder
+                              ? "🔒 Finish Current Delivery First"
+                              : action.label}
                             </button>
 
                             {status === "Pending" && !canAcceptOrder && (

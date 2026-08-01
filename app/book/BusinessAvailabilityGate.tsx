@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import {
   ReactNode,
   useCallback,
@@ -234,12 +236,12 @@ export default function BusinessAvailabilityGate({
               Check Again
             </button>
 
-            <a
+            <Link
               href="/"
               className="rounded-2xl border border-blue-200 bg-white px-6 py-4 font-extrabold text-blue-700 transition hover:bg-blue-50"
             >
               Return Home
-            </a>
+            </Link>
           </div>
         </div>
       </div>

@@ -3,6 +3,7 @@
 import OperationsCenter from "./OperationsCenter";
 import PaymentsCenter from "./PaymentsCenter";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -1249,12 +1250,12 @@ useEffect(() => {
 
         <div className="relative mx-auto flex max-w-7xl flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <a
+            <Link
               href="/"
               className="inline-flex items-center gap-2 text-sm font-bold text-blue-100 transition hover:text-white"
             >
               ← Barangay Express Homepage
-            </a>
+            </Link>
 
             <div className="mt-5 flex items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/20 bg-white/10 text-3xl shadow-lg backdrop-blur">
@@ -1337,26 +1338,25 @@ useEffect(() => {
 
           <div className="flex items-center gap-4">
   <div className="relative">
-
   <button
-  type="button"
-  onClick={() => {
-    setNotificationPanelOpen((current) => !current);
-    setUnreadActivityCount(0);
-  }}
-  aria-label="Open admin activity log"
-  title="Activity Log"
-  className="relative flex h-11 items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-white px-4 text-sm font-extrabold text-blue-950 shadow-lg transition hover:bg-blue-50"
->
-  <span aria-hidden="true">📋</span>
-  <span>Activity Log</span>
+    type="button"
+    onClick={() => {
+      setNotificationPanelOpen((current) => !current);
+      setUnreadActivityCount(0);
+    }}
+    aria-label="Open admin activity log"
+    title="Activity Log"
+    className="relative flex h-11 items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-white px-4 text-sm font-extrabold text-blue-950 shadow-lg transition hover:bg-blue-50"
+  >
+    <span aria-hidden="true">📋</span>
+    <span>Activity Log</span>
 
-  {unreadActivityCount > 0 && (
-    <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white">
-      {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
-    </span>
-  )}
-</button>
+    {unreadActivityCount > 0 && (
+      <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white">
+        {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
+      </span>
+    )}
+  </button>
 
   {notificationPanelOpen && (
     <div className="absolute right-0 top-14 z-[160] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
@@ -1375,7 +1375,7 @@ useEffect(() => {
           type="button"
           onClick={() => setNotificationPanelOpen(false)}
           className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 font-bold text-slate-500 hover:bg-slate-200"
-          aria-label="Close notifications"
+          aria-label="Close activity log"
         >
           ×
         </button>
@@ -1384,7 +1384,7 @@ useEffect(() => {
       <div className="max-h-[28rem] overflow-y-auto">
         {activityLoading ? (
           <div className="p-6 text-center text-sm font-semibold text-slate-500">
-            Loading notifications...
+            Loading activity log...
           </div>
         ) : activityError ? (
           <div className="m-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-bold text-red-700">

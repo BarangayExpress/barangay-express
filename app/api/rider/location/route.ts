@@ -9,8 +9,6 @@ type LocationPayload = {
   speed?: number | null;
 };
 
-const MAX_ACCEPTED_ACCURACY_METERS = 100;
-
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
@@ -88,20 +86,16 @@ export async function POST(request: NextRequest) {
     }
 
     if (
-      !isFiniteNumber(payload.accuracy) ||
-      payload.accuracy <= 0 ||
-      payload.accuracy > MAX_ACCEPTED_ACCURACY_METERS
+      payload.accuracy !== null &&
+      payload.accuracy !== undefined &&
+      (!isFiniteNumber(payload.accuracy) || payload.accuracy <= 0)
     ) {
       return NextResponse.json(
         {
-          error:
-            "GPS accuracy is too weak. Move outdoors and wait for accuracy of 100 meters or better.",
-          code: "WEAK_GPS",
-          accuracy: isFiniteNumber(payload.accuracy)
-            ? payload.accuracy
-            : null,
+          error: "GPS accuracy must be a positive number when provided.",
+          code: "INVALID_GPS_ACCURACY",
         },
-        { status: 422 }
+        { status: 400 }
       );
     }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase-server";
+import { createAdminClient } from "@/lib/supabase-admin";
+import { requireAdmin } from "@/lib/require-role";
 
 const allowedStatuses = [
   "Pending",
@@ -14,22 +15,8 @@ const allowedStatuses = [
 
 export async function PATCH(request: Request) {
   try {
-    const supabase = await createClient();
-
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Unauthorized. Mag-login muna.",
-        },
-        { status: 401 }
-      );
-    }
+    const authorization = await requireAdmin();
+    if (!authorization.authorized) return authorization.response;
 
     const body = await request.json();
     const id = Number(body.id);
@@ -45,7 +32,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { error } = await supabase
+    const { error } = await createAdminClient()
       .from("orders")
       .update({ status })
       .eq("id", id);

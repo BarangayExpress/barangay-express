@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase-browser";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function LoginPage() {
         {/* Branding panel */}
         <section className="hidden flex-col justify-between bg-gradient-to-br from-blue-950 to-blue-700 p-10 text-white lg:flex">
           <div>
-            <a href="/" className="flex items-center gap-3">
+            <Link href="/" className="flex items-center gap-3">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-3xl shadow-lg">
                 🏍️
               </div>
@@ -54,7 +55,7 @@ export default function LoginPage() {
                   Fast • Safe • Local
                 </p>
               </div>
-            </a>
+            </Link>
 
             <div className="mt-16">
               <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold">
@@ -93,12 +94,12 @@ export default function LoginPage() {
         {/* Login form */}
         <section className="bg-white p-6 md:p-10 lg:p-12">
           <div className="mx-auto max-w-md">
-            <a
+            <Link
               href="/"
               className="inline-flex items-center gap-2 text-sm font-bold text-blue-700 transition hover:text-blue-900"
             >
               ← Bumalik sa homepage
-            </a>
+            </Link>
 
             <div className="mt-8 lg:hidden">
               <div className="flex items-center gap-3">

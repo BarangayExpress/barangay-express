@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, getRequestIp } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +41,23 @@ function readCoordinate(
 
 export async function GET(request: NextRequest) {
   try {
+    const rateLimit = checkRateLimit(
+      `route:${getRequestIp(request)}`,
+      60,
+      60_000
+    );
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { success: false, error: "Too many route requests. Please wait a minute." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+          },
+        }
+      );
+    }
+
     const startLatitude = readCoordinate(request, "start_lat", -90, 90);
     const startLongitude = readCoordinate(request, "start_lng", -180, 180);
     const endLatitude = readCoordinate(request, "end_lat", -90, 90);

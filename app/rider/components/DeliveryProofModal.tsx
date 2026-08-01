@@ -4,7 +4,6 @@ import {
   ChangeEvent,
   PointerEvent as ReactPointerEvent,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";

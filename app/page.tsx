@@ -1,24 +1,42 @@
 import { createClient as createServerClient } from "@/lib/supabase-server";
+import Link from "next/link";
+
 export default async function Home() {
   const supabase = await createServerClient();
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const accountHref = user
-    ? "/customer/dashboard"
-    : "/customer/login";
+  let accountHref = "/customer/login";
+  let accountLabel = "Customer Login";
+  let isCustomerLoggedIn = false;
 
-  const accountLabel = user
-    ? "My Account"
-    : "Customer Login";
+  if (user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role, is_active")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.is_active && profile.role === "customer") {
+      accountHref = "/customer/dashboard";
+      accountLabel = "My Account";
+      isCustomerLoggedIn = true;
+    } else if (profile?.is_active && profile.role === "rider") {
+      accountHref = "/rider/dashboard";
+      accountLabel = "Rider Dashboard";
+    } else if (profile?.is_active && profile.role === "admin") {
+      accountHref = "/dashboard";
+      accountLabel = "Admin Dashboard";
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-blue-100 bg-white/90 px-6 py-4 shadow-sm backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <a href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-600 text-2xl shadow-lg shadow-blue-200">
               🚚
             </div>
@@ -31,34 +49,34 @@ export default async function Home() {
                 Local Delivery Service
               </p>
             </div>
-          </a>
+          </Link>
 
           <nav className="hidden items-center gap-7 font-semibold text-slate-700 md:flex">
-            <a href="/" className="transition hover:text-blue-600">
+            <Link href="/" className="transition hover:text-blue-600">
               Home
-            </a>
+            </Link>
 
-            <a href="/book" className="transition hover:text-blue-600">
+            <Link href="/book" className="transition hover:text-blue-600">
               Book
-            </a>
+            </Link>
 
-            <a href="/#rates" className="transition hover:text-blue-600">
+            <Link href="/#rates" className="transition hover:text-blue-600">
               Rates
-            </a>
+            </Link>
 
-            <a href="/track" className="transition hover:text-blue-600">
+            <Link href="/track" className="transition hover:text-blue-600">
               Track
-            </a>
+            </Link>
 
-            <a href="/#contact" className="transition hover:text-blue-600">
+            <Link href="/#contact" className="transition hover:text-blue-600">
               Contact
-            </a>
+            </Link>
 
-           <a
-  href={accountHref}
-  className="rounded-xl border border-blue-200 px-4 py-2 text-blue-700 transition hover:bg-blue-50"
->
-  {accountLabel}
+            <a
+              href={accountHref}
+              className="rounded-xl border border-blue-200 px-4 py-2 text-blue-700 transition hover:bg-blue-50"
+            >
+              {accountLabel}
             </a>
           </nav>
         </div>
@@ -101,15 +119,17 @@ export default async function Home() {
               </a>
             </div>
 
-            <p className="mt-5 text-sm font-semibold text-blue-100">
-              Wala pang customer account?{" "}
-              <a
-                href="/customer/signup"
-                className="font-black text-white underline underline-offset-4"
-              >
-                Sign up free
-              </a>
-            </p>
+            {!isCustomerLoggedIn && (
+              <p className="mt-5 text-sm font-semibold text-blue-100">
+                Wala pang customer account?{" "}
+                <a
+                  href="/customer/signup"
+                  className="font-black text-white underline underline-offset-4"
+                >
+                  Sign up free
+                </a>
+              </p>
+            )}
 
             <div className="mt-10 grid max-w-xl grid-cols-3 gap-4">
               <div>

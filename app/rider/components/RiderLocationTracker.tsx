@@ -69,18 +69,6 @@ export default function RiderLocationTracker({
 
     setLatestAccuracy(accuracy);
 
-    if (accuracy === null || accuracy > MAX_ACCURACY) {
-      setStatus("weak-signal");
-      setMessage(
-        accuracy === null
-          ? "Hindi mabasa ang GPS accuracy. Lumabas sa open area."
-          : `Mahina ang GPS signal (±${Math.round(
-              accuracy
-            )} m). Hindi muna sine-save ang lokasyon. Hintayin na bumaba sa ±${MAX_ACCURACY} m o mas mababa.`
-      );
-      return;
-    }
-
     if (sendingRef.current || now - lastSentAtRef.current < 5000) return;
     if (!supabase) throw new Error("Missing Supabase environment variables.");
 
@@ -124,11 +112,16 @@ export default function RiderLocationTracker({
         updatedAt: new Date(),
       });
 
-      setStatus("sharing");
+      const weakSignal = accuracy === null || accuracy > MAX_ACCURACY;
+      setStatus(weakSignal ? "weak-signal" : "sharing");
       setMessage(
-        accuracy <= GOOD_ACCURACY
-          ? `Live location is active. Good GPS accuracy (±${Math.round(accuracy)} m).`
-          : `Live location is active. Acceptable GPS accuracy (±${Math.round(accuracy)} m).`
+        accuracy === null
+          ? "Live location is active, pero hindi mabasa ang GPS accuracy. I-check ang pin bago bumiyahe."
+          : accuracy <= GOOD_ACCURACY
+            ? `Live location is active. Good GPS accuracy (±${Math.round(accuracy)} m).`
+            : accuracy <= MAX_ACCURACY
+              ? `Live location is active. Acceptable GPS accuracy (±${Math.round(accuracy)} m).`
+              : `Live location is active pero mahina ang GPS (±${Math.round(accuracy)} m). Nakikita pa rin ang mapa at pins; i-check ang lokasyon bago bumiyahe.`
       );
     } finally {
       sendingRef.current = false;
@@ -222,7 +215,7 @@ export default function RiderLocationTracker({
 
       {status === "weak-signal" && (
         <div style={{ marginBottom: 16, padding: 14, borderRadius: 14, border: "1px solid #fed7aa", background: "#fff7ed", color: "#9a3412", fontWeight: 700, lineHeight: 1.6 }}>
-          ⚠️ Hindi muna sine-save o ipinapakita ang location dahil mahina ang GPS signal. Gumamit ng rider phone, i-on ang Precise Location, at pumunta sa open area.
+          ⚠️ Mahina ang GPS signal kaya maaaring hindi eksakto ang rider marker. Naka-save at nakikita pa rin ang mapa, pickup, at drop-off pins. I-on ang Precise Location at i-check ang pin bago bumiyahe.
         </div>
       )}
 
@@ -250,7 +243,7 @@ export default function RiderLocationTracker({
       {latestAccuracy !== null && (
         <div style={{ marginBottom: 14, padding: 12, borderRadius: 12, background: latestAccuracy <= GOOD_ACCURACY ? "#ecfdf5" : latestAccuracy <= MAX_ACCURACY ? "#fefce8" : "#fff7ed", color: latestAccuracy <= GOOD_ACCURACY ? "#166534" : latestAccuracy <= MAX_ACCURACY ? "#854d0e" : "#9a3412", fontWeight: 800 }}>
           Current GPS accuracy: ±{Math.round(latestAccuracy)} m
-          {latestAccuracy > MAX_ACCURACY ? " — blocked" : latestAccuracy <= GOOD_ACCURACY ? " — good" : " — acceptable"}
+          {latestAccuracy > MAX_ACCURACY ? " — weak (not blocked)" : latestAccuracy <= GOOD_ACCURACY ? " — good" : " — acceptable"}
         </div>
       )}
 
@@ -277,9 +270,7 @@ export default function RiderLocationTracker({
         </>
       ) : (
         <div style={{ minHeight: 180, display: "grid", placeItems: "center", borderRadius: 18, border: "1px dashed #cbd5e1", background: "#f8fafc", color: "#64748b", textAlign: "center", padding: 20 }}>
-          {status === "weak-signal"
-            ? "Naghihintay ng mas accurate na GPS signal. Hindi ipapakita ang maling lokasyon."
-            : "Pindutin ang “Start Live Location” para lumabas ang iyong kasalukuyang lokasyon sa mapa."}
+          Pindutin ang “Start Live Location” para lumabas ang rider, pickup, at drop-off pins sa mapa.
         </div>
       )}
     </section>

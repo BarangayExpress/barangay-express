@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
+import { checkRateLimit, getRequestIp } from "@/lib/rate-limit";
+import { requireRole } from "@/lib/require-role";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,26 @@ type RiderLocationRow = {
 
 export async function GET(request: NextRequest) {
   try {
+    const authorization = await requireRole(["customer", "admin"]);
+    if (!authorization.authorized) return authorization.response;
+
+    const rateLimit = checkRateLimit(
+      `track:${authorization.role}:${authorization.userId}:${getRequestIp(request)}`,
+      authorization.role === "admin" ? 600 : 30,
+      60_000
+    );
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { success: false, error: "Too many tracking requests. Please wait a minute." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+          },
+        }
+      );
+    }
+
     const bookingNo = request.nextUrl.searchParams
       .get("booking_no")
       ?.trim()
@@ -52,13 +74,22 @@ export async function GET(request: NextRequest) {
 
     const supabase = createAdminClient();
 
-    const { data: order, error: orderError } = await supabase
+    let orderQuery = supabase
       .from("orders")
       .select(
         "booking_no, package_type, status, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, cancellation_reason, cancelled_by, cancelled_at"
       )
-      .eq("booking_no", bookingNo)
-      .maybeSingle<TrackingOrderRow>();
+      .eq("booking_no", bookingNo);
+
+    if (authorization.role === "customer") {
+      orderQuery = orderQuery.eq(
+        "customer_user_id",
+        authorization.userId
+      );
+    }
+
+    const { data: order, error: orderError } =
+      await orderQuery.maybeSingle<TrackingOrderRow>();
 
     if (orderError) {
       throw new Error(orderError.message);
@@ -116,7 +147,7 @@ export async function GET(request: NextRequest) {
         success: false,
         error:
           error instanceof Error
-            ? error.message
+            ? "Unable to retrieve tracking information."
             : "Unknown server error.",
       },
       { status: 500 }

@@ -52,6 +52,9 @@ type Order = {
   received_by: string | null;
   receiver_signature_url: string | null;
   proof_submitted_at: string | null;
+  cancellation_reason: string | null;
+  cancelled_by: string | null;
+  cancelled_at: string | null;
 };
 
 const ACTIVE_STATUSES = [
@@ -205,7 +208,7 @@ export default function RiderDashboardPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<
-    "available" | "active" | "completed"
+    "available" | "active" | "completed" | "cancelled"
   >("available");
   const [proofOrder, setProofOrder] = useState<Order | null>(null);
 
@@ -246,7 +249,7 @@ export default function RiderDashboardPage() {
         const { data: orderRows, error: ordersError } = await supabase
           .from("orders")
           .select(
-            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at"
+            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at, cancellation_reason, cancelled_by, cancelled_at"
           )
           .or(
             `and(status.eq.Pending,assigned_rider.is.null),assigned_rider.eq.${currentUser.id}`
@@ -412,6 +415,15 @@ export default function RiderDashboardPage() {
     [orders, user]
   );
 
+  const cancelledOrders = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          order.assigned_rider === user?.id && order.status === "Cancelled"
+      ),
+    [orders, user]
+  );
+
   const completedToday = useMemo(
     () => completedOrders.filter((order) => isToday(order.completed_at)),
     [completedOrders]
@@ -431,7 +443,9 @@ export default function RiderDashboardPage() {
       ? availableOrders
       : activeTab === "active"
         ? activeOrders
-        : completedOrders;
+        : activeTab === "completed"
+          ? completedOrders
+          : cancelledOrders;
 
   const currentActiveOrder = activeOrders[0] ?? null;
   const canAcceptOrder = activeOrders.length < MAX_ACTIVE_DELIVERIES;
@@ -622,7 +636,7 @@ export default function RiderDashboardPage() {
         </section>
 
         <section className="mt-7 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {[
               {
                 key: "available" as const,
@@ -635,6 +649,10 @@ export default function RiderDashboardPage() {
               {
                 key: "completed" as const,
                 label: `Completed (${completedOrders.length})`,
+              },
+              {
+                key: "cancelled" as const,
+                label: `Cancelled (${cancelledOrders.length})`,
               },
             ].map((tab) => (
               <button
@@ -709,6 +727,20 @@ export default function RiderDashboardPage() {
                       </span>
                     </div>
                   </div>
+
+                  {status === "Cancelled" && (
+                    <div className="border-t border-red-100 bg-red-50 px-5 py-4 sm:px-6">
+                      <p className="font-extrabold text-red-900">
+                        ❌ Cancelled booking
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-red-700">
+                        Reason: {order.cancellation_reason || "No reason provided"}
+                      </p>
+                      <p className="mt-1 text-sm text-red-700">
+                        Cancelled: {formatDate(order.cancelled_at)}
+                      </p>
+                    </div>
+                  )}
 
                   <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-2">
                     <div className="rounded-2xl bg-sky-50 p-5">
@@ -786,6 +818,7 @@ export default function RiderDashboardPage() {
                       </div>
                     )}
 
+                  {status !== "Cancelled" && (
                   <div className="border-t border-slate-100 bg-slate-950 p-5 text-white sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                       <div className="flex-1">
@@ -878,6 +911,7 @@ export default function RiderDashboardPage() {
                       </div>
                     </div>
                   </div>
+                  )}
                 </article>
               );
             })

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { requireCustomerPage } from "@/lib/customer";
+import BookingChatPanel from "@/app/components/BookingChatPanel";
 
 type CustomerOrder = {
   id: number;
@@ -175,6 +176,16 @@ export default async function CustomerDashboardPage() {
                       </Link>
                     </div>
                   </div>
+
+                  {(order.status || "Pending") !== "Pending" && (
+                    <div className="-mx-6 -mb-6 mt-6 md:-mx-7 md:-mb-7">
+                      <BookingChatPanel
+                        orderId={order.id}
+                        bookingNo={order.booking_no}
+                        role="customer"
+                      />
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

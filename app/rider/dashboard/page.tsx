@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase-browser";
 import RiderLocationTracker from "../components/RiderLocationTracker";
 import DeliveryProofModal from "../components/DeliveryProofModal";
 import NotificationBell from "@/app/components/NotificationBell";
+import BookingChatPanel from "@/app/components/BookingChatPanel";
 
 type RiderProfile = {
   id: string;
@@ -815,8 +816,16 @@ export default function RiderDashboardPage() {
                         <p className="mt-1 text-sm text-emerald-700">
                           Submitted: {formatDate(order.proof_submitted_at)}
                         </p>
-                      </div>
-                    )}
+                    </div>
+                  )}
+
+                  {order.assigned_rider === user?.id && status !== "Pending" && (
+                    <BookingChatPanel
+                      orderId={order.id}
+                      bookingNo={order.booking_no}
+                      role="rider"
+                    />
+                  )}
 
                   {status !== "Cancelled" && (
                   <div className="border-t border-slate-100 bg-slate-950 p-5 text-white sm:p-6">

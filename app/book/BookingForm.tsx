@@ -3,6 +3,7 @@
 import BusinessAvailabilityGate from "./BusinessAvailabilityGate";
 import PaymentAfterBooking from "./components/PaymentAfterBooking";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   ChangeEvent,
   FormEvent,
@@ -151,6 +152,11 @@ export default function BookingForm({
   const [completedPaymentMethod, setCompletedPaymentMethod] =useState("");
   const [completedAmount, setCompletedAmount] = useState(0);
   const [errorMessage, setErrorMessage] = useState("");
+  const [savedAddressMessage, setSavedAddressMessage] = useState("");
+  const [savePickupAddress, setSavePickupAddress] = useState(false);
+  const [saveDropoffAddress, setSaveDropoffAddress] = useState(false);
+  const [pickupAddressLabel, setPickupAddressLabel] = useState("");
+  const [dropoffAddressLabel, setDropoffAddressLabel] = useState("");
   const [pickupPoint, setPickupPoint] = useState<MapPoint | null>(null);
   const [dropoffPoint, setDropoffPoint] = useState<MapPoint | null>(null);
   const [routeDistanceKm, setRouteDistanceKm] = useState<number | null>(null);
@@ -248,6 +254,34 @@ export default function BookingForm({
     setDropoffPoint(point);
   }
 
+  async function saveBookingAddress(input: {
+    label: string;
+    contactName: string;
+    phone: string;
+    address: string;
+    point: MapPoint;
+  }) {
+    const response = await fetch("/api/customer/addresses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: input.label.trim(),
+        contact_name: input.contactName.trim(),
+        phone: input.phone.trim(),
+        address: input.address.trim(),
+        latitude: input.point.latitude,
+        longitude: input.point.longitude,
+        is_default: false,
+      }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(result.error || "Hindi na-save ang address.");
+    }
+  }
+
   const handleRouteChange = useCallback(
   (
     distanceKm: number | null,
@@ -302,6 +336,7 @@ export default function BookingForm({
 
     setBookingNumber("");
     setErrorMessage("");
+    setSavedAddressMessage("");
 
     if (
       !form.sender_name.trim() ||
@@ -315,6 +350,20 @@ export default function BookingForm({
       !form.delivery_fee
     ) {
       setErrorMessage("Pakikumpleto ang lahat ng required fields.");
+      return;
+    }
+
+    if (savePickupAddress && !pickupAddressLabel.trim()) {
+      setErrorMessage(
+        "Maglagay ng label para sa pickup address, halimbawa Food Hub."
+      );
+      return;
+    }
+
+    if (saveDropoffAddress && !dropoffAddressLabel.trim()) {
+      setErrorMessage(
+        "Maglagay ng label para sa drop-off address, halimbawa Home."
+      );
       return;
     }
 
@@ -362,6 +411,55 @@ export default function BookingForm({
         throw new Error(result.error || "Hindi na-save ang booking.");
       }
 
+      const addressSaveTasks: Promise<void>[] = [];
+
+      if (savePickupAddress) {
+        addressSaveTasks.push(
+          saveBookingAddress({
+            label: pickupAddressLabel,
+            contactName: form.sender_name,
+            phone: form.sender_phone,
+            address: form.pickup_address,
+            point: pickupPoint,
+          })
+        );
+      }
+
+      if (saveDropoffAddress) {
+        addressSaveTasks.push(
+          saveBookingAddress({
+            label: dropoffAddressLabel,
+            contactName: form.receiver_name,
+            phone: form.receiver_phone,
+            address: form.dropoff_address,
+            point: dropoffPoint,
+          })
+        );
+      }
+
+      if (addressSaveTasks.length > 0) {
+        const addressResults = await Promise.allSettled(addressSaveTasks);
+        const savedCount = addressResults.filter(
+          (addressResult) => addressResult.status === "fulfilled"
+        ).length;
+
+        if (savedCount === addressSaveTasks.length) {
+          setSavedAddressMessage(
+            savedCount === 2
+              ? "Na-save ang pickup at drop-off addresses."
+              : "Na-save ang pinili mong address."
+          );
+        } else if (savedCount > 0) {
+          setSavedAddressMessage(
+            "Na-save ang isang address, pero hindi na-save ang isa. Maaari mo itong idagdag sa Saved Addresses."
+          );
+        } else {
+          setSavedAddressMessage(
+            "Confirmed ang booking, pero hindi na-save ang address. Maaari mo itong idagdag sa Saved Addresses."
+          );
+        }
+      }
+
       setBookingNumber(newBookingNumber);
       setCompletedSenderPhone(form.sender_phone.trim());
       setCompletedPaymentMethod(form.payment_method);
@@ -371,6 +469,10 @@ export default function BookingForm({
       setDropoffPoint(null);
       setRouteDistanceKm(null);
       setRouteDurationMinutes(null);
+      setSavePickupAddress(false);
+      setSaveDropoffAddress(false);
+      setPickupAddressLabel("");
+      setDropoffAddressLabel("");
 
       window.scrollTo({
         top: 0,
@@ -397,7 +499,7 @@ export default function BookingForm({
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-blue-100 bg-white/90 px-4 py-4 shadow-sm backdrop-blur md:px-6">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <a href="/" className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 text-2xl shadow-lg shadow-blue-200">
               🏍️
             </div>
@@ -411,14 +513,14 @@ export default function BookingForm({
                 Fast • Safe • Local
               </p>
             </div>
-          </a>
+          </Link>
 
-          <a
+          <Link
             href="/"
             className="rounded-xl border border-blue-100 bg-white px-4 py-2 text-sm font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50"
           >
             ← Home
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -505,6 +607,12 @@ export default function BookingForm({
                   I-save o i-screenshot ang booking number. Kakailanganin ito
                   upang makita ang status ng iyong delivery.
                 </p>
+
+                {savedAddressMessage && (
+                  <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 font-bold leading-6 text-emerald-700">
+                    ✅ {savedAddressMessage}
+                  </div>
+                )}
                 
                 <PaymentAfterBooking
                   bookingNumber={bookingNumber}
@@ -639,6 +747,35 @@ export default function BookingForm({
                       className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3.5 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                     />
                   </label>
+
+                  <div className="mt-5 rounded-2xl border border-blue-100 bg-white p-4">
+                    <label className="flex cursor-pointer items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={savePickupAddress}
+                        onChange={(event) =>
+                          setSavePickupAddress(event.target.checked)
+                        }
+                        className="h-5 w-5"
+                      />
+                      <span className="font-bold text-blue-950">
+                        Save this pickup address
+                      </span>
+                    </label>
+
+                    {savePickupAddress && (
+                      <input
+                        required
+                        value={pickupAddressLabel}
+                        onChange={(event) =>
+                          setPickupAddressLabel(event.target.value)
+                        }
+                        placeholder="Label, halimbawa Food Hub"
+                        maxLength={40}
+                        className="mt-4 w-full rounded-xl border border-blue-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                      />
+                    )}
+                  </div>
                 </section>
 
                 {/* Receiver */}
@@ -736,6 +873,35 @@ export default function BookingForm({
                       className="w-full resize-none rounded-2xl border border-slate-200 bg-white px-4 py-3.5 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                     />
                   </label>
+
+                  <div className="mt-5 rounded-2xl border border-sky-100 bg-white p-4">
+                    <label className="flex cursor-pointer items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={saveDropoffAddress}
+                        onChange={(event) =>
+                          setSaveDropoffAddress(event.target.checked)
+                        }
+                        className="h-5 w-5"
+                      />
+                      <span className="font-bold text-blue-950">
+                        Save this drop-off address
+                      </span>
+                    </label>
+
+                    {saveDropoffAddress && (
+                      <input
+                        required
+                        value={dropoffAddressLabel}
+                        onChange={(event) =>
+                          setDropoffAddressLabel(event.target.value)
+                        }
+                        placeholder="Label, halimbawa Home"
+                        maxLength={40}
+                        className="mt-4 w-full rounded-xl border border-sky-200 bg-white px-4 py-3 text-slate-900 outline-none focus:border-sky-500 focus:ring-4 focus:ring-sky-100"
+                      />
+                    )}
+                  </div>
                 </section>
 
                 <BookingMapPicker

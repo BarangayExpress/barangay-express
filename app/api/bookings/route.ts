@@ -466,6 +466,15 @@ export async function POST(request: Request) {
             title: "New Customer Booking",
             message: `May bagong booking: ${createdBooking.booking_no}.`,
           },
+          {
+            orderId: createdBooking.id,
+            bookingNo: createdBooking.booking_no,
+            recipientType: "rider",
+            notificationType: "new_available_order",
+            title: "New Available Delivery",
+            message: `May bagong delivery request: ${createdBooking.booking_no}.`,
+            metadata: { href: "/rider/dashboard" },
+          },
         ],
       });
     } catch (notificationError) {

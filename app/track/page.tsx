@@ -515,7 +515,7 @@ export default function TrackPage() {
       {/* Header */}
       <header className="sticky top-0 z-50 border-b border-blue-100 bg-white/90 px-4 py-4 shadow-sm backdrop-blur md:px-6">
         <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <a href="/" className="flex items-center gap-3">
+          <a href="/customer/dashboard" className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-sky-500 text-2xl shadow-lg shadow-blue-200">
               🏍️
             </div>
@@ -540,10 +540,10 @@ export default function TrackPage() {
             </a>
 
             <a
-              href="/"
+              href="/customer/dashboard"
               className="rounded-xl border border-blue-100 bg-white px-4 py-2 text-sm font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-50"
             >
-              ← Home
+            ← My Orders
             </a>
           </div>
         </div>

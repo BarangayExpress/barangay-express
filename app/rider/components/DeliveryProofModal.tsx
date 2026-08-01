@@ -594,6 +594,16 @@ export default function DeliveryProofModal({
         );
       }
 
+      try {
+        await fetch("/api/rider/orders/delivered-notification", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: orderId }),
+        });
+      } catch (notificationError) {
+        console.error("Delivered notification failed:", notificationError);
+      }
+
       setStage("success");
       await onSubmitted();
 

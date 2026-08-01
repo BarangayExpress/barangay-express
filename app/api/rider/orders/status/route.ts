@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { requireRider } from "@/lib/require-role";
+import { createNotification } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,7 @@ type OrderRow = {
   assigned_rider: string | null;
   payment_method: string | null;
   payment_status: string | null;
+  customer_user_id: string | null;
 };
 
 const STATUS_TRANSITIONS: Record<
@@ -111,7 +113,7 @@ export async function PATCH(request: Request) {
       await supabaseAdmin
         .from("orders")
         .select(
-          "id, booking_no, status, assigned_rider, payment_method, payment_status"
+          "id, booking_no, status, assigned_rider, payment_method, payment_status, customer_user_id"
         )
         .eq("id", orderId)
         .maybeSingle<OrderRow>();
@@ -308,6 +310,30 @@ export async function PATCH(request: Request) {
         },
         { status: 409 }
       );
+    }
+
+    if (order.customer_user_id) {
+      const statusMessages: Record<string, string> = {
+        Accepted: "Tinanggap na ng rider ang iyong booking.",
+        "Heading to Pickup": "Papunta na ang rider sa pickup location.",
+        "Picked Up": "Nakuha na ng rider ang iyong item.",
+        "In Transit": "Papunta na sa drop-off location ang delivery.",
+        Completed: "Completed na ang iyong delivery. Salamat!",
+      };
+      try {
+        await createNotification({
+          orderId: order.id,
+          bookingNo: order.booking_no,
+          recipientType: "customer",
+          recipientUserId: order.customer_user_id,
+          notificationType: "order_status_changed",
+          title: `Order ${transition.nextStatus}`,
+          message: statusMessages[transition.nextStatus] ?? `Ang booking mo ay ${transition.nextStatus} na.`,
+          metadata: { href: "/customer/dashboard", status: transition.nextStatus },
+        });
+      } catch (notificationError) {
+        console.error("Order status notification failed:", notificationError);
+      }
     }
 
     return NextResponse.json({

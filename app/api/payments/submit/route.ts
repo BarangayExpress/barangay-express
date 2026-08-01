@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { requireCustomer } from "@/lib/require-role";
+import { createManyNotifications } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -327,6 +328,34 @@ export async function POST(request: Request) {
           removeOldProofError.message
         );
       }
+    }
+
+    try {
+      await createManyNotifications({
+        notifications: [
+          {
+            orderId: order.id,
+            bookingNo: order.booking_no,
+            recipientType: "customer",
+            recipientUserId: authorization.userId,
+            notificationType: "payment_submitted",
+            title: "Payment Proof Submitted",
+            message: `Naghihintay na ng admin verification ang payment para sa ${order.booking_no}.`,
+            metadata: { href: "/customer/dashboard" },
+          },
+          {
+            orderId: order.id,
+            bookingNo: order.booking_no,
+            recipientType: "admin",
+            notificationType: "payment_for_verification",
+            title: "Payment Needs Verification",
+            message: `May bagong GCash proof para sa ${order.booking_no}.`,
+            metadata: { href: "/dashboard" },
+          },
+        ],
+      });
+    } catch (notificationError) {
+      console.error("Payment notification failed:", notificationError);
     }
 
     return NextResponse.json({

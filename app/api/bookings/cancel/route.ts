@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-admin";
 import { requireCustomer } from "@/lib/require-role";
+import { createManyNotifications } from "@/lib/notifications";
 
 type CancellationPayload = {
   booking_no?: string;
@@ -14,6 +15,7 @@ type OrderRow = {
   sender_phone: string | null;
   status: string | null;
   customer_user_id: string | null;
+  assigned_rider: string | null;
 };
 
 const customerCancellableStatuses = new Set([
@@ -96,7 +98,7 @@ export async function POST(request: Request) {
       await supabaseAdmin
         .from("orders")
         .select(
-          "id, booking_no, sender_phone, status, customer_user_id"
+          "id, booking_no, sender_phone, status, customer_user_id, assigned_rider"
         )
         .eq("booking_no", bookingNo)
         .maybeSingle<OrderRow>();
@@ -192,6 +194,46 @@ export async function POST(request: Request) {
         },
         { status: 409 }
       );
+    }
+
+    try {
+      await createManyNotifications({
+        notifications: [
+          {
+            orderId: order.id,
+            bookingNo: order.booking_no,
+            recipientType: "customer",
+            recipientUserId: authorization.userId,
+            notificationType: "booking_cancelled",
+            title: "Booking Cancelled",
+            message: `Cancelled na ang ${order.booking_no}.`,
+            metadata: { href: "/customer/dashboard" },
+          },
+          {
+            orderId: order.id,
+            bookingNo: order.booking_no,
+            recipientType: "admin",
+            notificationType: "booking_cancelled",
+            title: "Customer Cancelled Booking",
+            message: `${order.booking_no} was cancelled by the customer.`,
+            metadata: { href: "/dashboard" },
+          },
+          ...(order.assigned_rider
+            ? [{
+                orderId: order.id,
+                bookingNo: order.booking_no,
+                recipientType: "rider" as const,
+                recipientUserId: order.assigned_rider,
+                notificationType: "booking_cancelled",
+                title: "Assigned Booking Cancelled",
+                message: `Cancelled na ng customer ang ${order.booking_no}.`,
+                metadata: { href: "/rider/dashboard" },
+              }]
+            : []),
+        ],
+      });
+    } catch (notificationError) {
+      console.error("Cancellation notification failed:", notificationError);
     }
 
     return NextResponse.json({

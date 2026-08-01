@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireCustomerPage } from "@/lib/customer";
 import CustomerLogoutButton from "../CustomerLogoutButton";
+import NotificationBell from "@/app/components/NotificationBell";
 
 export default async function CustomerProtectedLayout({
   children,
@@ -50,6 +51,7 @@ export default async function CustomerProtectedLayout({
             >
               {customer.full_name}
             </Link>
+            <NotificationBell defaultHref="/customer/dashboard" />
             <CustomerLogoutButton />
           </nav>
         </div>

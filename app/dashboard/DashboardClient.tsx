@@ -15,6 +15,7 @@ import { createClient } from "@/lib/supabase-browser";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import LogoutButton from "./LogoutButton";
+import NotificationBell from "@/app/components/NotificationBell";
 import type { AdminRiderMapItem } from "./AdminLiveMap";
 
 const AdminLiveMap = dynamic(() => import("./AdminLiveMap"), {
@@ -1242,7 +1243,7 @@ useEffect(() => {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       {/* Header */}
-      <header className="relative overflow-hidden bg-gradient-to-r from-blue-950 via-blue-800 to-sky-600 px-4 py-7 text-white shadow-xl md:px-6">
+      <header className="relative overflow-visible bg-gradient-to-r from-blue-950 via-blue-800 to-sky-600 px-4 py-7 text-white shadow-xl md:px-6">
         <div className="absolute -left-20 top-0 h-64 w-64 rounded-full bg-sky-400/20 blur-3xl" />
         <div className="absolute -right-20 bottom-0 h-72 w-72 rounded-full bg-blue-300/20 blur-3xl" />
 
@@ -1278,6 +1279,7 @@ useEffect(() => {
           </div>
 
           <div className="flex flex-wrap gap-3">
+            <NotificationBell defaultHref="/dashboard" dark />
             <a
               href="/book"
               className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/20"
@@ -1335,24 +1337,26 @@ useEffect(() => {
 
           <div className="flex items-center gap-4">
   <div className="relative">
-  <button
-    type="button"
-    onClick={() => {
-      setNotificationPanelOpen((current) => !current);
-      setUnreadActivityCount(0);
-    }}
-    aria-label="Open notifications"
-    title="Notifications"
-    className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-blue-100 bg-white text-xl shadow-lg transition hover:bg-blue-50"
-  >
-    🔔
 
-    {unreadActivityCount > 0 && (
-      <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white">
-        {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
-      </span>
-    )}
-  </button>
+  <button
+  type="button"
+  onClick={() => {
+    setNotificationPanelOpen((current) => !current);
+    setUnreadActivityCount(0);
+  }}
+  aria-label="Open admin activity log"
+  title="Activity Log"
+  className="relative flex h-11 items-center justify-center gap-2 rounded-2xl border border-blue-100 bg-white px-4 text-sm font-extrabold text-blue-950 shadow-lg transition hover:bg-blue-50"
+>
+  <span aria-hidden="true">📋</span>
+  <span>Activity Log</span>
+
+  {unreadActivityCount > 0 && (
+    <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-extrabold text-white">
+      {unreadActivityCount > 99 ? "99+" : unreadActivityCount}
+    </span>
+  )}
+</button>
 
   {notificationPanelOpen && (
     <div className="absolute right-0 top-14 z-[160] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-blue-100 bg-white shadow-2xl">
@@ -1363,7 +1367,7 @@ useEffect(() => {
           </p>
 
           <h3 className="mt-1 text-lg font-extrabold text-blue-950">
-            Notifications
+            Activity Log
           </h3>
         </div>
 

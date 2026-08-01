@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { requireAdmin } from "@/lib/require-role";
+import { createNotification } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
@@ -196,7 +197,7 @@ if (!authorization.authorized) {
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .select(
-        "id, booking_no, payment_method, payment_status, payment_reference"
+        "id, booking_no, payment_method, payment_status, payment_reference, customer_user_id"
       )
       .eq("id", orderId)
       .maybeSingle<{
@@ -205,6 +206,7 @@ if (!authorization.authorized) {
         payment_method: string | null;
         payment_status: PaymentStatus | null;
         payment_reference: string | null;
+        customer_user_id: string | null;
       }>();
 
     if (orderError) {
@@ -328,6 +330,29 @@ if (!authorization.authorized) {
 
     if (updateError) {
       throw new Error(updateError.message);
+    }
+
+    if (order.customer_user_id) {
+      const paymentMessages = {
+        approve: "Approved na ang iyong GCash payment.",
+        reject: "Na-reject ang payment proof. Pakisuri at magsumite muli.",
+        refund: "Marked as refunded na ang iyong payment.",
+        reset: "Na-reset sa unpaid ang payment status.",
+      };
+      try {
+        await createNotification({
+          orderId: order.id,
+          bookingNo: order.booking_no,
+          recipientType: "customer",
+          recipientUserId: order.customer_user_id,
+          notificationType: `payment_${action}`,
+          title: `Payment ${updates.payment_status}`,
+          message: `${paymentMessages[action]} Booking: ${order.booking_no}.`,
+          metadata: { href: "/customer/dashboard", payment_status: updates.payment_status },
+        });
+      } catch (notificationError) {
+        console.error("Admin payment notification failed:", notificationError);
+      }
     }
 
     return NextResponse.json({

@@ -6,6 +6,7 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase-browser";
 import RiderLocationTracker from "../components/RiderLocationTracker";
 import DeliveryProofModal from "../components/DeliveryProofModal";
+import NotificationBell from "@/app/components/NotificationBell";
 
 type RiderProfile = {
   id: string;
@@ -481,6 +482,7 @@ export default function RiderDashboardPage() {
           </div>
 
           <div className="flex flex-wrap gap-3">
+            <NotificationBell defaultHref="/rider/dashboard" dark />
             <button
               type="button"
               onClick={() => loadDashboard(false)}

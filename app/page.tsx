@@ -1,4 +1,18 @@
-export default function Home() {
+import { createClient as createServerClient } from "@/lib/supabase-server";
+export default async function Home() {
+  const supabase = await createServerClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const accountHref = user
+    ? "/customer/dashboard"
+    : "/customer/login";
+
+  const accountLabel = user
+    ? "My Account"
+    : "Customer Login";
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
       {/* Header */}
@@ -40,11 +54,11 @@ export default function Home() {
               Contact
             </a>
 
-            <a
-              href="/customer/login"
-              className="rounded-xl border border-blue-200 px-4 py-2 text-blue-700 transition hover:bg-blue-50"
-            >
-              Customer Login
+           <a
+  href={accountHref}
+  className="rounded-xl border border-blue-200 px-4 py-2 text-blue-700 transition hover:bg-blue-50"
+>
+  {accountLabel}
             </a>
           </nav>
         </div>

@@ -8,6 +8,7 @@ import RiderLocationTracker from "../components/RiderLocationTracker";
 import DeliveryProofModal from "../components/DeliveryProofModal";
 import NotificationBell from "@/app/components/NotificationBell";
 import BookingChatPanel from "@/app/components/BookingChatPanel";
+import RiderWalletPanel from "../components/RiderWalletPanel";
 
 type RiderProfile = {
   id: string;
@@ -56,6 +57,7 @@ type Order = {
   cancellation_reason: string | null;
   cancelled_by: string | null;
   cancelled_at: string | null;
+  commission_amount?: number;
 };
 
 const ACTIVE_STATUSES = [
@@ -212,6 +214,7 @@ export default function RiderDashboardPage() {
     "available" | "active" | "completed" | "cancelled"
   >("available");
   const [proofOrder, setProofOrder] = useState<Order | null>(null);
+  const [walletRefreshKey, setWalletRefreshKey] = useState(0);
 
   const loadDashboard = useCallback(
     async (showFullLoader = false) => {
@@ -261,9 +264,33 @@ export default function RiderDashboardPage() {
           throw new Error(ordersError.message);
         }
 
+        const orderIds = (orderRows || []).map((order) => order.id);
+        const { data: commissionRows, error: commissionsError } = orderIds.length
+          ? await supabase
+              .from("order_commissions")
+              .select("order_id, commission_amount")
+              .in("order_id", orderIds)
+          : { data: [], error: null };
+
+        if (commissionsError) {
+          throw new Error(commissionsError.message);
+        }
+
+        const commissions = new Map(
+          (commissionRows || []).map((row) => [
+            Number(row.order_id),
+            Number(row.commission_amount || 0),
+          ])
+        );
+
         setUser(currentUser);
         setProfile(riderProfile);
-        setOrders((orderRows || []) as Order[]);
+        setOrders(
+          ((orderRows || []) as Order[]).map((order) => ({
+            ...order,
+            commission_amount: commissions.get(order.id) || 0,
+          }))
+        );
         setLastUpdated(new Date());
       } catch (error) {
         setErrorMessage(
@@ -368,6 +395,9 @@ export default function RiderDashboardPage() {
     if (currentStatus === "Pending") {
       setActiveTab("active");
     }
+    if (["Pending", "Delivered"].includes(currentStatus)) {
+      setWalletRefreshKey((value) => value + 1);
+    }
   } catch (error) {
     setErrorMessage(
       error instanceof Error
@@ -433,7 +463,8 @@ export default function RiderDashboardPage() {
   const earningsToday = useMemo(
     () =>
       completedToday.reduce(
-        (total, order) => total + Number(order.price || 0),
+        (total, order) =>
+          total + Number(order.price || 0) - Number(order.commission_amount || 0),
         0
       ),
     [completedToday]
@@ -525,6 +556,8 @@ export default function RiderDashboardPage() {
           </div>
         )}
 
+        <RiderWalletPanel refreshKey={walletRefreshKey} />
+
         <section
           className={`mb-6 rounded-3xl border p-5 shadow-sm ${
             canAcceptOrder
@@ -595,7 +628,7 @@ export default function RiderDashboardPage() {
         <section className="mt-7 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {[
             {
-              label: "Today's Earnings",
+              label: "Net Earnings Today",
               value: formatCurrency(earningsToday),
               icon: "💰",
             },

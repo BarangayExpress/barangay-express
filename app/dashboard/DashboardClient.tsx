@@ -1287,6 +1287,12 @@ useEffect(() => {
             >
               + New Booking
             </a>
+            <a
+              href="/dashboard/rider-wallets"
+              className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/20"
+            >
+              💳 Rider Wallets
+            </a>
 
             <button
               type="button"

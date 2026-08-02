@@ -157,28 +157,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const cancelledAt = new Date().toISOString();
-
-    /*
-      May status condition para hindi ma-cancel kapag
-      biglang nag-update ang rider habang pinoproseso
-      ang cancellation request.
-    */
-    const { data: cancelledOrder, error: updateError } =
-      await supabaseAdmin
-        .from("orders")
-        .update({
-          status: "Cancelled",
-          cancellation_reason: reason,
-          cancelled_by: "customer",
-          cancelled_at: cancelledAt,
-        })
-        .eq("id", order.id)
-        .in("status", ["Pending", "Accepted"])
-        .select(
-          "booking_no, status, cancellation_reason, cancelled_by, cancelled_at"
-        )
-        .maybeSingle();
+    /* Atomic database function: cancels the order and returns any reserved
+       commission to the rider in the same transaction. */
+    const { data: cancellationRows, error: updateError } =
+      await supabaseAdmin.rpc("cancel_customer_order_with_commission_release", {
+        p_order_id: order.id,
+        p_customer_id: authorization.userId,
+        p_reason: reason,
+      });
+    const cancelledOrder = Array.isArray(cancellationRows)
+      ? cancellationRows[0] || null
+      : cancellationRows;
 
     if (updateError) {
       throw new Error(updateError.message);

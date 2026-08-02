@@ -229,34 +229,65 @@ export async function PATCH(request: Request) {
       }
     }
 
-    const now = new Date().toISOString();
-
-    const updates: Record<string, string> = {
-      status: transition.nextStatus,
-      [transition.timestampColumn]: now,
-    };
+    let updatedOrder: Record<string, unknown> | null = null;
 
     if (currentStatus === "Pending") {
-      updates.assigned_rider = authorization.userId;
-    }
-
-    let updateQuery = supabaseAdmin
-      .from("orders")
-      .update(updates)
-      .eq("id", orderId)
-      .eq("status", currentStatus);
-
-    if (currentStatus === "Pending") {
-      updateQuery = updateQuery.is("assigned_rider", null);
-    } else {
-      updateQuery = updateQuery.eq(
-        "assigned_rider",
-        authorization.userId
+      const { data, error } = await supabaseAdmin.rpc(
+        "accept_order_with_commission",
+        { p_order_id: orderId, p_rider_id: authorization.userId }
       );
-    }
 
-    const { data: updatedOrder, error: updateError } =
-      await updateQuery
+      if (error) {
+        const messages: Record<string, { code: string; message: string }> = {
+          INSUFFICIENT_WALLET_BALANCE: {
+            code: "INSUFFICIENT_WALLET_BALANCE",
+            message: "Kulang ang available wallet balance para sa commission ng booking na ito. Mag-top-up muna.",
+          },
+          ORDER_ALREADY_ACCEPTED: {
+            code: "ORDER_ALREADY_ACCEPTED",
+            message: "Na-accept na ng ibang rider ang order na ito.",
+          },
+          ACTIVE_ORDER_LIMIT: {
+            code: "ACTIVE_ORDER_LIMIT",
+            message: "May active delivery ka pa. Kumpletuhin muna ito.",
+          },
+          GCASH_PAYMENT_NOT_VERIFIED: {
+            code: "GCASH_PAYMENT_NOT_VERIFIED",
+            message: "Hindi pa verified ang GCash payment.",
+          },
+        };
+        const match = Object.keys(messages).find((key) => error.message.includes(key));
+        const mapped = match ? messages[match] : null;
+        return NextResponse.json(
+          { success: false, code: mapped?.code || "WALLET_ACCEPT_FAILED", error: mapped?.message || error.message },
+          { status: 409 }
+        );
+      }
+      updatedOrder = Array.isArray(data) ? data[0] || null : data;
+    } else if (currentStatus === "Delivered" && transition.nextStatus === "Completed") {
+      const { data, error } = await supabaseAdmin.rpc(
+        "complete_order_with_commission",
+        { p_order_id: orderId, p_rider_id: authorization.userId }
+      );
+      if (error) {
+        return NextResponse.json(
+          { success: false, code: "COMMISSION_FINALIZATION_FAILED", error: "Hindi ma-finalize ang commission. I-refresh at subukan muli." },
+          { status: 409 }
+        );
+      }
+      updatedOrder = Array.isArray(data) ? data[0] || null : data;
+    } else {
+      const now = new Date().toISOString();
+      const updates: Record<string, string> = {
+        status: transition.nextStatus,
+        [transition.timestampColumn]: now,
+      };
+      const { data, error: updateError } = await supabaseAdmin
+        .from("orders")
+        .update(updates)
+        .eq("id", orderId)
+        .eq("status", currentStatus)
+        .eq("assigned_rider", authorization.userId)
         .select(
           `
           id,
@@ -294,9 +325,8 @@ export async function PATCH(request: Request) {
           `
         )
         .maybeSingle();
-
-    if (updateError) {
-      throw new Error(updateError.message);
+      if (updateError) throw new Error(updateError.message);
+      updatedOrder = data;
     }
 
     if (!updatedOrder) {

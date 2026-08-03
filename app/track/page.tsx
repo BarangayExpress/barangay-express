@@ -34,6 +34,14 @@ type TrackingOrder = {
   dropoff_longitude: number | null;
 };
 
+type AssignedRiderProfile = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  vehicle_type: string | null;
+  plate_number: string | null;
+};
+
 type RiderLocation = {
   latitude: number;
   longitude: number;
@@ -202,6 +210,7 @@ export default function TrackPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [riderLocation, setRiderLocation] = useState<RiderLocation | null>(null);
+  const [assignedRider, setAssignedRider] = useState<AssignedRiderProfile | null>(null);
 
   const [statusToast, setStatusToast] = useState<StatusToast | null>(null);
 
@@ -252,6 +261,7 @@ export default function TrackPage() {
     setErrorMessage("");
     setOrder(null);
     setRiderLocation(null);
+    setAssignedRider(null);
     setRating(0);
     setHoveredRating(0);
     setReviewComment("");
@@ -279,6 +289,7 @@ export default function TrackPage() {
 
       setOrder(result.order);
       setRiderLocation(result.rider_location || null);
+      setAssignedRider(result.assigned_rider_profile || null);
       setBookingNo(trimmedBookingNo);
       previousStatusRef.current = result.order?.status || "Pending";
     } catch (error) {
@@ -330,6 +341,7 @@ export default function TrackPage() {
         previousStatusRef.current = nextStatus;
         setOrder(result.order);
         setRiderLocation(result.rider_location || null);
+      setAssignedRider(result.assigned_rider_profile || null);
       } catch {
         // Keep the last known location during a temporary network error.
       }
@@ -655,7 +667,32 @@ export default function TrackPage() {
               <div className="p-4 md:p-6">
                 {showLiveMap && riderLocation ? (
                   <>
-                   <CustomerLiveMap
+                   {assignedRider && (
+                    <section className="mb-5 rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
+                      <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-blue-600">
+                        Assigned rider
+                      </p>
+                      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h3 className="text-xl font-black text-slate-950">🏍️ {assignedRider.full_name}</h3>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {assignedRider.vehicle_type || "Motorcycle"}
+                            {assignedRider.plate_number ? ` • ${assignedRider.plate_number}` : ""}
+                          </p>
+                        </div>
+                        {assignedRider.phone && (
+                          <a
+                            href={`tel:${assignedRider.phone}`}
+                            className="rounded-2xl bg-blue-600 px-5 py-3 text-center font-extrabold text-white hover:bg-blue-700"
+                          >
+                            📞 Call rider
+                          </a>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
+                  <CustomerLiveMap
   latitude={riderLocation.latitude}
   longitude={riderLocation.longitude}
   accuracy={riderLocation.accuracy}

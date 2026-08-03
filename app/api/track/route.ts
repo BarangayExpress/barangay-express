@@ -26,6 +26,14 @@ type TrackingOrderRow = {
   cancelled_at: string | null;
 };
 
+type AssignedRiderRow = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  vehicle_type: string | null;
+  plate_number: string | null;
+};
+
 type RiderLocationRow = {
   latitude: number;
   longitude: number;
@@ -106,8 +114,21 @@ export async function GET(request: NextRequest) {
     }
 
     let riderLocation: RiderLocationRow | null = null;
+    let assignedRider: AssignedRiderRow | null = null;
 
     if (order.assigned_rider && order.status !== "Cancelled") {
+      const { data: riderData, error: riderError } = await supabase
+        .from("rider_profiles")
+        .select("id, full_name, phone, vehicle_type, plate_number")
+        .eq("id", order.assigned_rider)
+        .maybeSingle<AssignedRiderRow>();
+
+      if (riderError) {
+        console.error("Assigned rider lookup failed:", riderError);
+      } else {
+        assignedRider = riderData;
+      }
+
       const { data, error: riderLocationError } = await supabase
         .from("rider_locations")
         .select(
@@ -131,6 +152,7 @@ export async function GET(request: NextRequest) {
         success: true,
         order,
         rider_location: riderLocation,
+        assigned_rider_profile: assignedRider,
       },
       {
         status: 200,

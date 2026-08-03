@@ -68,6 +68,10 @@ export default async function Home() {
               Track
             </Link>
 
+            <Link href="/apply-rider" className="transition hover:text-blue-600">
+              Apply as Rider
+            </Link>
+
             <Link href="/#contact" className="transition hover:text-blue-600">
               Contact
             </Link>
@@ -109,6 +113,13 @@ export default async function Home() {
                 className="rounded-2xl bg-white px-7 py-4 text-center text-lg font-bold text-blue-800 shadow-xl shadow-blue-950/20 transition hover:-translate-y-1 hover:bg-blue-50"
               >
                 Book Delivery
+              </a>
+
+              <a
+                href="/apply-rider"
+                className="rounded-2xl border border-white/30 bg-white/10 px-7 py-4 text-center text-lg font-bold text-white backdrop-blur transition hover:bg-white/20"
+              >
+                Apply as Rider
               </a>
 
               <a

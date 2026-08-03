@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase-browser";
@@ -17,6 +17,7 @@ type RiderProfile = {
   vehicle_type: string | null;
   plate_number: string | null;
   is_active: boolean | null;
+  is_online: boolean | null;
 };
 
 type Order = {
@@ -220,6 +221,10 @@ export default function RiderDashboardPage() {
   >("available");
   const [proofOrder, setProofOrder] = useState<Order | null>(null);
   const [walletRefreshKey, setWalletRefreshKey] = useState(0);
+  const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [soundAlertsEnabled, setSoundAlertsEnabled] = useState(false);
+  const previousAvailableIdsRef = useRef<Set<number>>(new Set());
+  const soundInitializedRef = useRef(false);
 
   const loadDashboard = useCallback(
     async (showFullLoader = false) => {
@@ -244,7 +249,7 @@ export default function RiderDashboardPage() {
         const { data: riderProfile, error: profileError } = await supabase
           .from("rider_profiles")
           .select(
-            "id, full_name, phone, vehicle_type, plate_number, is_active"
+            "id, full_name, phone, vehicle_type, plate_number, is_active, is_online"
           )
           .eq("id", currentUser.id)
           .maybeSingle<RiderProfile>();
@@ -415,6 +420,26 @@ export default function RiderDashboardPage() {
     setUpdatingId(null);
   }
 }
+  async function toggleAvailability() {
+    if (!profile) return;
+    setAvailabilitySaving(true);
+    setErrorMessage("");
+    try {
+      const response = await fetch("/api/rider/availability", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_online: !profile.is_online }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Hindi ma-update ang rider status.");
+      setProfile((current) => current ? { ...current, is_online: !current.is_online } : current);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Hindi ma-update ang rider status.");
+    } finally {
+      setAvailabilitySaving(false);
+    }
+  }
+
   async function updatePurchasePayment(order: Order, action: "accept_advance" | "payment_received") {
     let actualAmount: number | undefined;
     if (action === "accept_advance") {
@@ -449,6 +474,35 @@ export default function RiderDashboardPage() {
       setUpdatingId(null);
     }
   }
+  function playBookingAlert() {
+    try {
+      const AudioContextClass = window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) return;
+      const context = new AudioContextClass();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.22, context.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.48);
+      oscillator.addEventListener("ended", () => context.close());
+    } catch (error) {
+      console.error("Booking alert sound failed:", error);
+    }
+  }
+
+  function enableSoundAlerts() {
+    setSoundAlertsEnabled(true);
+    soundInitializedRef.current = true;
+    playBookingAlert();
+  }
+
   async function logout() {
     await supabase.auth.signOut();
 
@@ -465,6 +519,24 @@ export default function RiderDashboardPage() {
       ),
     [orders]
   );
+
+  useEffect(() => {
+    const currentIds = new Set(availableOrders.map((order) => order.id));
+    const hasNewOrder = Array.from(currentIds).some(
+      (id) => !previousAvailableIdsRef.current.has(id)
+    );
+
+    if (
+      soundInitializedRef.current &&
+      soundAlertsEnabled &&
+      profile?.is_online &&
+      hasNewOrder
+    ) {
+      playBookingAlert();
+    }
+
+    previousAvailableIdsRef.current = currentIds;
+  }, [availableOrders, profile?.is_online, soundAlertsEnabled]);
 
   const activeOrders = useMemo(
     () =>
@@ -519,7 +591,7 @@ export default function RiderDashboardPage() {
           : cancelledOrders;
 
   const currentActiveOrder = activeOrders[0] ?? null;
-  const canAcceptOrder = activeOrders.length < MAX_ACTIVE_DELIVERIES;
+  const canAcceptOrder = activeOrders.length < MAX_ACTIVE_DELIVERIES && Boolean(profile?.is_online);
   const remainingDeliverySlots = Math.max(
     0,
     MAX_ACTIVE_DELIVERIES - activeOrders.length
@@ -579,6 +651,18 @@ export default function RiderDashboardPage() {
 
             <button
               type="button"
+              onClick={enableSoundAlerts}
+              className={`rounded-2xl border px-5 py-3 font-extrabold transition ${
+                soundAlertsEnabled
+                  ? "border-emerald-300 bg-emerald-500/20 text-emerald-100"
+                  : "border-white/15 bg-white/10 hover:bg-white/20"
+              }`}
+            >
+              {soundAlertsEnabled ? "🔔 Sound On" : "🔕 Enable Sound"}
+            </button>
+
+            <button
+              type="button"
               onClick={logout}
               className="rounded-2xl bg-white px-5 py-3 font-extrabold text-blue-950 transition hover:bg-sky-50"
             >
@@ -594,6 +678,19 @@ export default function RiderDashboardPage() {
             {errorMessage}
           </div>
         )}
+
+        <section className={`mb-6 rounded-3xl border p-5 shadow-sm ${profile?.is_online ? "border-green-200 bg-green-50" : "border-slate-200 bg-white"}`}>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-slate-500">Rider availability</p>
+              <h2 className="mt-1 text-xl font-black text-slate-950">{profile?.is_online ? "You are online" : "You are offline"}</h2>
+              <p className="mt-1 text-sm text-slate-600">Only online riders can accept newly available orders.</p>
+            </div>
+            <button type="button" onClick={toggleAvailability} disabled={availabilitySaving} className={`rounded-2xl px-5 py-3 font-black text-white disabled:opacity-50 ${profile?.is_online ? "bg-slate-700" : "bg-green-600"}`}>
+              {availabilitySaving ? "Updating..." : profile?.is_online ? "Go Offline" : "Go Online"}
+            </button>
+          </div>
+        </section>
 
         <RiderWalletPanel refreshKey={walletRefreshKey} />
 
@@ -616,7 +713,9 @@ export default function RiderDashboardPage() {
               <h2 className="mt-1 text-xl font-black text-slate-950">
                 {canAcceptOrder
                   ? `Ready to accept ${remainingDeliverySlots} order`
-                  : "Current delivery must be completed first"}
+                  : !profile?.is_online
+                    ? "Go online to accept a new order"
+                    : "Current delivery must be completed first"}
               </h2>
               <p className="mt-1 text-sm font-medium text-slate-600">
                 Maximum active deliveries: {MAX_ACTIVE_DELIVERIES}

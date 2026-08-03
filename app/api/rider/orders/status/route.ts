@@ -203,6 +203,20 @@ export async function PATCH(request: Request) {
     }
 
     if (currentStatus === "Pending") {
+      const { data: riderProfile, error: riderProfileError } = await supabaseAdmin
+        .from("rider_profiles")
+        .select("is_active, is_online")
+        .eq("id", authorization.userId)
+        .maybeSingle<{ is_active: boolean; is_online: boolean }>();
+
+      if (riderProfileError) throw new Error(riderProfileError.message);
+      if (!riderProfile?.is_active || !riderProfile.is_online) {
+        return NextResponse.json(
+          { success: false, code: "RIDER_OFFLINE", error: "Mag-Go Online muna bago tumanggap ng bagong order." },
+          { status: 409 }
+        );
+      }
+
       const { count, error: activeCountError } =
         await supabaseAdmin
           .from("orders")

@@ -16,7 +16,7 @@ export async function GET() {
     const { data, error } = await supabaseAdmin
       .from("orders")
       .select(
-        "id, booking_no, pickup_address, dropoff_address, package_type, payment_method, payment_status, status, price, order_amount, total_amount, created_at"
+        "id, booking_no, pickup_address, dropoff_address, package_type, payment_method, payment_status, status, price, order_amount, total_amount, item_payment_flow, estimated_item_amount, actual_item_amount, purchase_payment_status, rider_advance_amount, created_at"
       )
       .eq("customer_user_id", authorization.userId)
       .order("created_at", { ascending: false });

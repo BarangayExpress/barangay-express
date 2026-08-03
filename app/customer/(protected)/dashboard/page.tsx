@@ -12,7 +12,12 @@ type CustomerOrder = {
   payment_method: string | null;
   payment_status: string | null;
   status: string | null;
+  price: number | string | null;
   total_amount: number | string | null;
+  item_payment_flow: string | null;
+  estimated_item_amount: number | string | null;
+  actual_item_amount: number | string | null;
+  purchase_payment_status: string | null;
   created_at: string;
 };
 
@@ -31,13 +36,24 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function getCustomerTotal(order: CustomerOrder) {
+  if (
+    order.item_payment_flow === "rider_advance_cod" &&
+    order.actual_item_amount !== null
+  ) {
+    return Number(order.price || 0) + Number(order.actual_item_amount || 0);
+  }
+
+  return Number(order.total_amount || 0);
+}
+
 export default async function CustomerDashboardPage() {
   const customer = await requireCustomerPage();
   const supabaseAdmin = createAdminClient();
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select(
-      "id, booking_no, pickup_address, dropoff_address, package_type, payment_method, payment_status, status, total_amount, created_at"
+      "id, booking_no, pickup_address, dropoff_address, package_type, payment_method, payment_status, status, price, total_amount, item_payment_flow, estimated_item_amount, actual_item_amount, purchase_payment_status, created_at"
     )
     .eq("customer_user_id", customer.id)
     .order("created_at", { ascending: false });
@@ -163,9 +179,18 @@ export default async function CustomerDashboardPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-3">
-                      <span className="text-lg font-black text-blue-950">
-                        {formatMoney(order.total_amount)}
-                      </span>
+                      <div className="text-right">
+                        {order.item_payment_flow === "rider_advance_cod" &&
+                          order.actual_item_amount !== null && (
+                            <p className="text-xs font-bold text-slate-500">
+                              Delivery {formatMoney(order.price)} + item{" "}
+                              {formatMoney(order.actual_item_amount)}
+                            </p>
+                          )}
+                        <p className="text-lg font-black text-blue-950">
+                          {formatMoney(getCustomerTotal(order))}
+                        </p>
+                      </div>
                       <Link
                         href={`/track?booking=${encodeURIComponent(
                           order.booking_no

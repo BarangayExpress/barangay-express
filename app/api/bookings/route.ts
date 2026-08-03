@@ -23,6 +23,7 @@ type BookingPayload = {
   dropoff_address?: string;
   package_type?: string;
   payment_method?: string;
+  item_payment_flow?: string;
   order_amount?: number;
   notes?: string;
   pickup_latitude?: number;
@@ -45,6 +46,9 @@ type ValidatedBookingInput = {
   dropoff_address: string;
   package_type: string;
   payment_method: string;
+  item_payment_flow: string;
+  estimated_item_amount: number;
+  purchase_payment_status: string;
   order_amount: number;
   notes: string | null;
   pickup_latitude: number;
@@ -77,6 +81,12 @@ const allowedPackageTypes = new Set([
 ]);
 
 const allowedPaymentMethods = new Set(["Cash", "GCash"]);
+const allowedItemPaymentFlows = new Set([
+  "delivery_only",
+  "merchant_direct",
+  "prepaid_to_rider",
+  "rider_advance_cod",
+]);
 
 function cleanText(value: unknown, maximumLength: number) {
   if (typeof value !== "string") {
@@ -123,6 +133,7 @@ function validateBookingInput(
   const dropoffAddress = cleanText(body.dropoff_address, 500);
   const packageType = cleanText(body.package_type, 50);
   const paymentMethod = cleanText(body.payment_method, 50);
+  const itemPaymentFlow = cleanText(body.item_payment_flow || "delivery_only", 50);
   const notes = cleanText(body.notes, 1000);
 
   if (!bookingNo || !/^BE-\d{10,}$/.test(bookingNo)) {
@@ -188,6 +199,10 @@ function validateBookingInput(
     };
   }
 
+  if (!allowedItemPaymentFlows.has(itemPaymentFlow)) {
+    return { success: false, error: "Invalid item payment flow." };
+  }
+
   if (
     !isValidCoordinate(body.pickup_latitude, -90, 90) ||
     !isValidCoordinate(body.pickup_longitude, -180, 180) ||
@@ -226,6 +241,12 @@ function validateBookingInput(
       dropoff_address: dropoffAddress,
       package_type: packageType,
       payment_method: paymentMethod,
+      item_payment_flow: itemPaymentFlow,
+      estimated_item_amount: orderAmount,
+      purchase_payment_status:
+        itemPaymentFlow === "rider_advance_cod"
+          ? "Awaiting Rider Consent"
+          : "Not Required",
       order_amount: orderAmount,
       notes: notes || null,
       pickup_latitude: body.pickup_latitude,

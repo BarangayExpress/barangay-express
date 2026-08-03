@@ -52,6 +52,7 @@ type BookingForm = {
   package_type: string;
   notes: string;
   payment_method: string;
+  item_payment_flow: string;
 
   delivery_fee: string;
   order_amount: string;
@@ -84,6 +85,7 @@ function createInitialForm(customerName: string): BookingForm {
   package_type: "Document",
   notes: "",
   payment_method: "Cash",
+  item_payment_flow: "delivery_only",
 
   delivery_fee: "",
   order_amount: "0",
@@ -137,6 +139,13 @@ const paymentOptions = [
     label: "GCash",
     description: "Digital payment",
   },
+];
+
+const itemPaymentFlowOptions = [
+  { value: "delivery_only", label: "Delivery only", description: "Walang item na bibilhin ng rider." },
+  { value: "merchant_direct", label: "Pay merchant directly", description: "Customer pays the store using its QR or payment link." },
+  { value: "prepaid_to_rider", label: "Prepaid to rider", description: "Customer sends item payment before the rider purchases." },
+  { value: "rider_advance_cod", label: "Rider Advance / COD", description: "Rider may advance the actual cost, subject to limits and consent." },
 ];
 
 export default function BookingForm({
@@ -214,6 +223,14 @@ export default function BookingForm({
     setForm((currentForm) => ({
       ...currentForm,
       payment_method: paymentMethod,
+    }));
+  }
+
+  function selectItemPaymentFlow(itemPaymentFlow: string) {
+    setForm((currentForm) => ({
+      ...currentForm,
+      item_payment_flow: itemPaymentFlow,
+      order_amount: itemPaymentFlow === "delivery_only" ? "0" : currentForm.order_amount,
     }));
   }
 
@@ -395,6 +412,7 @@ export default function BookingForm({
           package_type: form.package_type,
           notes: form.notes.trim(),
           payment_method: form.payment_method,
+          item_payment_flow: form.item_payment_flow,
           status: "Pending",
           price: deliveryFee,
           order_amount: orderAmount,
@@ -1013,6 +1031,27 @@ export default function BookingForm({
                     })}
                   </div>
 
+                  <div className="mt-6">
+                    <p className="mb-3 text-sm font-bold text-slate-700">How will the item/store be paid?</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {itemPaymentFlowOptions.map((item) => {
+                        const selected = form.item_payment_flow === item.value;
+                        return (
+                          <button key={item.value} type="button" onClick={() => selectItemPaymentFlow(item.value)}
+                            className={`rounded-2xl border p-4 text-left transition ${selected ? "border-blue-600 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white"}`}>
+                            <span className="block font-extrabold text-blue-950">{item.label}</span>
+                            <span className="mt-1 block text-xs leading-5 text-slate-500">{item.description}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {form.item_payment_flow === "rider_advance_cod" && (
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-900">
+                        Estimate lamang ang ilalagay ng customer. Rider ang maglalagay ng actual receipt amount at kusang mag-a-approve. Default limit: ₱500 per booking, ₱1,000 total exposure, at isang active advance lamang.
+                      </div>
+                    )}
+                  </div>
+
                   <div className="mt-6 grid gap-5 md:grid-cols-2">
   <label className="block">
     <span className="mb-2 block text-sm font-bold text-slate-700">
@@ -1041,7 +1080,7 @@ export default function BookingForm({
 
   <label className="block">
     <span className="mb-2 block text-sm font-bold text-slate-700">
-      Order amount / item cost
+      Estimated item cost
       <span className="ml-1 font-semibold text-slate-400">
         (optional)
       </span>
@@ -1054,6 +1093,7 @@ export default function BookingForm({
 
       <input
         type="number"
+        disabled={form.item_payment_flow === "delivery_only"}
         name="order_amount"
         value={form.order_amount}
         onChange={updateOrderAmount}

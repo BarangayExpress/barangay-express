@@ -265,6 +265,18 @@ export async function PATCH(request: Request) {
       }
       updatedOrder = Array.isArray(data) ? data[0] || null : data;
     } else if (currentStatus === "Delivered" && transition.nextStatus === "Completed") {
+      const { error: advanceGuardError } = await supabaseAdmin.rpc(
+        "assert_rider_advance_paid",
+        { p_order_id: orderId, p_rider_id: authorization.userId }
+      );
+      if (advanceGuardError) {
+        const unpaid = advanceGuardError.message.includes("RIDER_ADVANCE_PAYMENT_NOT_RECEIVED");
+        return NextResponse.json(
+          { success: false, code: unpaid ? "RIDER_ADVANCE_PAYMENT_NOT_RECEIVED" : "ADVANCE_GUARD_FAILED",
+            error: unpaid ? "I-confirm muna ang Payment Received bago i-complete ang Rider Advance booking." : "Hindi ma-verify ang Rider Advance payment status." },
+          { status: 409 }
+        );
+      }
       const { data, error } = await supabaseAdmin.rpc(
         "complete_order_with_commission",
         { p_order_id: orderId, p_rider_id: authorization.userId }

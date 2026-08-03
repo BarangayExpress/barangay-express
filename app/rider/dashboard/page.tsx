@@ -33,6 +33,11 @@ type Order = {
 
   payment_method: string | null;
   payment_status: string | null;
+  item_payment_flow: string | null;
+  estimated_item_amount: number | string | null;
+  actual_item_amount: number | string | null;
+  purchase_payment_status: string | null;
+  rider_advance_amount: number | string | null;
   order_amount: number | string | null;
   total_amount: number | string | null;
 
@@ -253,7 +258,7 @@ export default function RiderDashboardPage() {
         const { data: orderRows, error: ordersError } = await supabase
           .from("orders")
           .select(
-            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at, cancellation_reason, cancelled_by, cancelled_at"
+            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, item_payment_flow, estimated_item_amount, actual_item_amount, purchase_payment_status, rider_advance_amount, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at, cancellation_reason, cancelled_by, cancelled_at"
           )
           .or(
             `and(status.eq.Pending,assigned_rider.is.null),assigned_rider.eq.${currentUser.id}`
@@ -410,6 +415,40 @@ export default function RiderDashboardPage() {
     setUpdatingId(null);
   }
 }
+  async function updatePurchasePayment(order: Order, action: "accept_advance" | "payment_received") {
+    let actualAmount: number | undefined;
+    if (action === "accept_advance") {
+      const answer = window.prompt(
+        "Ilagay ang ACTUAL item cost ayon sa resibo. Sa pagpapatuloy, pumapayag kang mag-advance ng halagang ito.",
+        String(order.estimated_item_amount || order.order_amount || "")
+      );
+      if (answer === null) return;
+      actualAmount = Number(answer);
+      if (!Number.isFinite(actualAmount) || actualAmount <= 0) {
+        setErrorMessage("Maglagay ng valid na actual item cost.");
+        return;
+      }
+    } else if (!window.confirm("Nabayaran ka na ba ng customer para sa actual item cost?")) {
+      return;
+    }
+
+    setUpdatingId(order.id);
+    setErrorMessage("");
+    try {
+      const response = await fetch("/api/rider/orders/purchase-payment", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: order.id, action, actual_amount: actualAmount }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "Hindi ma-update ang item payment.");
+      await loadDashboard(false);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Hindi ma-update ang item payment.");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
   async function logout() {
     await supabase.auth.signOut();
 
@@ -836,6 +875,32 @@ export default function RiderDashboardPage() {
                       </p>
                     </div>
                   </div>
+
+                  {order.item_payment_flow === "rider_advance_cod" && status !== "Cancelled" && (
+                    <div className="border-t border-amber-200 bg-amber-50 p-5 sm:p-6">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <p className="font-black text-amber-950">Rider Advance / COD</p>
+                          <p className="mt-1 text-sm font-semibold text-amber-800">
+                            Estimate: {formatCurrency(order.estimated_item_amount || order.order_amount)} • Actual: {order.actual_item_amount ? formatCurrency(order.actual_item_amount) : "Not entered"}
+                          </p>
+                          <p className="mt-1 text-sm text-amber-800">Status: {order.purchase_payment_status}</p>
+                        </div>
+                        {status !== "Pending" && order.purchase_payment_status === "Awaiting Rider Consent" && (
+                          <button type="button" disabled={updatingId === order.id} onClick={() => updatePurchasePayment(order, "accept_advance")}
+                            className="rounded-2xl bg-amber-500 px-5 py-3 font-black text-amber-950 disabled:opacity-50">
+                            Approve Actual Advance
+                          </button>
+                        )}
+                        {["Advance Approved", "Awaiting Customer Payment"].includes(order.purchase_payment_status || "") && (
+                          <button type="button" disabled={updatingId === order.id} onClick={() => updatePurchasePayment(order, "payment_received")}
+                            className="rounded-2xl bg-emerald-600 px-5 py-3 font-black text-white disabled:opacity-50">
+                            Confirm Payment Received
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   {["Delivered", "Completed"].includes(status) &&
                     order.proof_photo_url && (

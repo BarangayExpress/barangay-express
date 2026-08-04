@@ -66,7 +66,7 @@ export default function BookingChatPanel({
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [data, setData] = useState<ChatResponse>({});
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(
     async (summaryOnly = false) => {
@@ -113,9 +113,19 @@ export default function BookingChatPanel({
   }, [load, open]);
 
   useEffect(() => {
-    if (open) {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
+    if (!open) return;
+
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    // Scroll only inside the chat message area. Using scrollIntoView here
+    // also moves the whole customer tracking page down.
+    window.requestAnimationFrame(() => {
+      container.scrollTo({
+        top: container.scrollHeight,
+        behavior: "smooth",
+      });
+    });
   }, [data.messages, open]);
 
   async function togglePanel() {
@@ -177,9 +187,22 @@ export default function BookingChatPanel({
         <button
           type="button"
           onClick={() => void togglePanel()}
-          className="relative rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white shadow-sm hover:bg-blue-800"
+          aria-expanded={open}
+          className="group relative inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-blue-700 to-indigo-600 px-4 py-2.5 text-sm font-black text-white shadow-md shadow-blue-200 transition hover:-translate-y-0.5 hover:shadow-lg"
         >
-          💬 {open ? "Close Chat" : "Chat"}
+          <span className="grid h-8 w-8 place-items-center rounded-xl bg-white/15 transition group-hover:bg-white/25">
+            {open ? (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" strokeLinejoin="round" />
+                <path d="M8 9h8M8 13h5" strokeLinecap="round" />
+              </svg>
+            )}
+          </span>
+          {open ? "Close chat" : "Message rider"}
           {unread > 0 && (
             <span className="absolute -right-2 -top-2 min-w-6 rounded-full bg-red-600 px-1.5 py-0.5 text-xs text-white">
               {unread > 99 ? "99+" : unread}
@@ -194,9 +217,14 @@ export default function BookingChatPanel({
               key={contact.label}
               href={href}
               title={`${contact.name || contact.label}: ${contact.phone}`}
-              className="rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-black text-emerald-700 hover:bg-emerald-50"
+              className="group inline-flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-black text-emerald-700 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:bg-emerald-50 hover:shadow-md"
             >
-              📞 {contact.label}
+              <span className="grid h-8 w-8 place-items-center rounded-xl bg-emerald-100 transition group-hover:bg-emerald-200">
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.34 1.78.65 2.62a2 2 0 0 1-.45 2.11L8.04 9.72a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.84.31 1.72.53 2.62.65A2 2 0 0 1 22 16.92z" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              {contact.label}
             </a>
           ) : null;
         })}
@@ -211,7 +239,10 @@ export default function BookingChatPanel({
             </p>
           </div>
 
-          <div className="max-h-80 space-y-3 overflow-y-auto bg-slate-50 p-4">
+          <div
+            ref={messagesContainerRef}
+            className="max-h-80 space-y-3 overflow-y-auto overscroll-contain bg-slate-50 p-4"
+          >
             {loading && !data.messages ? (
               <p className="py-8 text-center text-sm font-bold text-slate-500">
                 Loading messages…
@@ -255,7 +286,6 @@ export default function BookingChatPanel({
                 );
               })
             )}
-            <div ref={messagesEndRef} />
           </div>
 
           {error && (

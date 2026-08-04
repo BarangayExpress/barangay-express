@@ -68,3 +68,8 @@ select:-webkit-autofill {
   max-width: none !important;
   max-height: none !important;
 }
+
+/* Barangay Express Admin V5 design foundation */
+* { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+::selection { background: #bfdbfe; color: #172554; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }

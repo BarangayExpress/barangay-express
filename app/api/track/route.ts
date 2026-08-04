@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/require-role";
 export const dynamic = "force-dynamic";
 
 type TrackingOrderRow = {
+  id: number;
   booking_no: string;
   package_type: string | null;
   status: string | null;
@@ -32,6 +33,8 @@ type AssignedRiderRow = {
   phone: string | null;
   vehicle_type: string | null;
   plate_number: string | null;
+  average_rating?: number | null;
+  review_count?: number;
 };
 
 type RiderLocationRow = {
@@ -85,7 +88,7 @@ export async function GET(request: NextRequest) {
     let orderQuery = supabase
       .from("orders")
       .select(
-        "booking_no, package_type, status, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, cancellation_reason, cancelled_by, cancelled_at"
+        "id, booking_no, package_type, status, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, cancellation_reason, cancelled_by, cancelled_at"
       )
       .eq("booking_no", bookingNo);
 
@@ -125,8 +128,28 @@ export async function GET(request: NextRequest) {
 
       if (riderError) {
         console.error("Assigned rider lookup failed:", riderError);
-      } else {
-        assignedRider = riderData;
+      } else if (riderData) {
+        const { data: ratingRows, error: ratingsError } = await supabase
+          .from("delivery_reviews")
+          .select("rating")
+          .eq("rider_id", order.assigned_rider);
+
+        if (ratingsError) {
+          console.error("Rider rating lookup failed:", ratingsError);
+          assignedRider = riderData;
+        } else {
+          const ratings = (ratingRows || []) as { rating: number }[];
+          const reviewCount = ratings.length;
+          const averageRating = reviewCount
+            ? ratings.reduce((sum, item) => sum + Number(item.rating || 0), 0) / reviewCount
+            : null;
+
+          assignedRider = {
+            ...riderData,
+            average_rating: averageRating,
+            review_count: reviewCount,
+          };
+        }
       }
 
       const { data, error: riderLocationError } = await supabase

@@ -64,6 +64,20 @@ type DeliveryReview = {
   comment: string | null;
   created_at: string;
 };
+type AdminView = "dashboard" | "dispatch" | "operations" | "payments" | "map" | "reviews" | "analytics" | "orders";
+
+type RiderSummary = {
+  id: string;
+  full_name: string;
+  phone: string | null;
+  vehicle_type: string | null;
+  plate_number: string | null;
+  is_active: boolean;
+  is_online: boolean;
+  active_deliveries: number;
+  completed_deliveries: number;
+};
+
 type ActivityLog = {
   id: number;
   booking_no: string | null;
@@ -258,24 +272,50 @@ export default function DashboardClient() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [activityLoading, setActivityLoading] = useState(true);
   const [activityError, setActivityError] = useState("");
+  const [riderSummaries, setRiderSummaries] = useState<RiderSummary[]>([]);
+  const [ridersLoading, setRidersLoading] = useState(true);
   const [notificationPanelOpen, setNotificationPanelOpen] = useState(false);
   const [unreadActivityCount, setUnreadActivityCount] = useState(0);
+  const [activeAdminView, setActiveAdminView] = useState<AdminView>("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [orderPage, setOrderPage] = useState(1);
+  const ordersPerPage = 8;
 
   function navigateFromStatCard(sectionId: string, status?: string) {
-  if (status) {
-    setFilterStatus(status);
-  }
+    if (status) setFilterStatus(status);
 
-  window.setTimeout(() => {
-    scrollToSection(sectionId);
-  }, 100);
-}
+    const viewBySection: Record<string, AdminView> = {
+      "operations-section": "operations",
+      "payments-section": "payments",
+      "rider-map-section": "map",
+      "reviews-section": "reviews",
+      "analytics-section": "analytics",
+      "orders-section": "orders",
+      "dashboard-section": "dashboard",
+    };
+
+    setActiveAdminView(viewBySection[sectionId] || "dashboard");
+    window.setTimeout(() => window.scrollTo({ top: 360, behavior: "smooth" }), 50);
+  }
 function scrollBackToTop() {
   window.scrollTo({
     top: 0,
     behavior: "smooth",
   });
 }
+const loadRiderSummaries = useCallback(async () => {
+  try {
+    const response = await fetch(`/api/admin/riders?t=${Date.now()}`, { cache: "no-store" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Unable to load riders.");
+    setRiderSummaries(Array.isArray(result.riders) ? result.riders : []);
+  } catch (error) {
+    console.error("Unable to load rider summary:", error);
+  } finally {
+    setRidersLoading(false);
+  }
+}, []);
+
 const loadActivityLogs = useCallback(async () => {
   try {
     setActivityError("");
@@ -320,6 +360,7 @@ async function refreshDashboardData() {
       loadOrders(false),
       loadReviews(),
       loadActivityLogs(),
+      loadRiderSummaries(),
     ]);
   } catch (error) {
     console.error("Dashboard refresh failed:", error);
@@ -860,6 +901,21 @@ useEffect(() => {
     }
   }
 
+  useEffect(() => {
+    void loadRiderSummaries();
+    const channel = supabase
+      .channel("dashboard-rider-summary-live")
+      .on("postgres_changes", { event: "*", schema: "public", table: "rider_profiles" }, () => {
+        void loadRiderSummaries();
+      })
+      .subscribe();
+    const intervalId = window.setInterval(() => void loadRiderSummaries(), 15000);
+    return () => {
+      window.clearInterval(intervalId);
+      void supabase.removeChannel(channel);
+    };
+  }, [loadRiderSummaries, supabase]);
+
   const stats = useMemo(() => {
     const totalOrders = orders.length;
 
@@ -895,6 +951,30 @@ useEffect(() => {
       totalEarnings,
     };
   }, [orders]);
+
+  const operationsSnapshot = useMemo(() => {
+    const online = riderSummaries.filter((r) => r.is_active && r.is_online);
+    const busy = online.filter((r) => r.active_deliveries > 0);
+    const available = online.filter((r) => r.active_deliveries === 0);
+    const activeOrders = orders.filter((order) => ["Accepted", "Heading to Pickup", "Picked Up", "In Transit", "Delivered"].includes(order.status || ""));
+    const recentNotifications = activityLogs.slice(0, 5);
+    const days = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date();
+      date.setHours(0, 0, 0, 0);
+      date.setDate(date.getDate() - (6 - index));
+      const next = new Date(date);
+      next.setDate(next.getDate() + 1);
+      const revenue = orders
+        .filter((order) => {
+          const created = order.created_at ? new Date(order.created_at) : null;
+          return created && created >= date && created < next && ["Delivered", "Completed"].includes(order.status || "");
+        })
+        .reduce((sum, order) => sum + Number(order.price || 0), 0);
+      return { label: date.toLocaleDateString("en-PH", { weekday: "short" }), revenue };
+    });
+    const maxRevenue = Math.max(1, ...days.map((day) => day.revenue));
+    return { online, busy, available, activeOrders, recentNotifications, days, maxRevenue };
+  }, [activityLogs, orders, riderSummaries]);
 
   const reviewAnalytics = useMemo(() => {
     const totalReviews = reviews.length;
@@ -1220,6 +1300,20 @@ useEffect(() => {
     });
   }, [orders, filterStatus, searchTerm]);
 
+  const totalOrderPages = Math.max(1, Math.ceil(filteredOrders.length / ordersPerPage));
+  const paginatedOrders = filteredOrders.slice(
+    (orderPage - 1) * ordersPerPage,
+    orderPage * ordersPerPage
+  );
+
+  useEffect(() => {
+    setOrderPage(1);
+  }, [filterStatus, searchTerm]);
+
+  useEffect(() => {
+    if (orderPage > totalOrderPages) setOrderPage(totalOrderPages);
+  }, [orderPage, totalOrderPages]);
+
   const hasActiveFilters =
     filterStatus !== "All" || searchTerm.trim().length > 0;
 
@@ -1241,10 +1335,88 @@ useEffect(() => {
     );
   }
 
+  const sidebarItems: Array<{ view: AdminView; label: string; icon: string; count?: number }> = [
+    { view: "dashboard", label: "Dashboard", icon: "⌂" },
+    { view: "dispatch", label: "Live Dispatch", icon: "⚡", count: stats.pendingOrders + stats.activeOrders },
+    { view: "orders", label: "Orders", icon: "▣", count: stats.totalOrders },
+    { view: "payments", label: "Payments", icon: "₱" },
+    { view: "operations", label: "Operations", icon: "⚙" },
+    { view: "map", label: "Rider Map", icon: "◎", count: liveRiders.length },
+    { view: "reviews", label: "Reviews", icon: "★", count: reviews.length },
+    { view: "analytics", label: "Analytics", icon: "↗" },
+  ];
+
+  const viewTitles: Record<AdminView, { eyebrow: string; title: string; description: string }> = {
+    dashboard: { eyebrow: "Command center", title: "Good day, Admin", description: "Here is what is happening across Barangay Express today." },
+    dispatch: { eyebrow: "Live operations", title: "Dispatch Center", description: "Watch pending orders, active trips, riders, and alerts in one real-time workspace." },
+    orders: { eyebrow: "Order management", title: "Delivery Orders", description: "Search, filter, and manage every booking from one workspace." },
+    payments: { eyebrow: "Finance", title: "Payment Center", description: "Review payment activity and delivery collections." },
+    operations: { eyebrow: "Operations", title: "Operations Center", description: "Control service availability and day-to-day operations." },
+    map: { eyebrow: "Live dispatch", title: "Rider Map", description: "Monitor active riders, pickups, and drop-offs in real time." },
+    reviews: { eyebrow: "Customer voice", title: "Reviews", description: "Track customer satisfaction and rider feedback." },
+    analytics: { eyebrow: "Performance", title: "Analytics", description: "Understand volume, earnings, completion, and ratings." },
+  };
+
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900">
+    <main className="min-h-screen bg-[#f4f7fb] text-slate-900">
+      {sidebarOpen && (
+        <button type="button" aria-label="Close sidebar" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-[140] bg-slate-950/40 backdrop-blur-sm lg:hidden" />
+      )}
+
+      <aside className={`fixed inset-y-0 left-0 z-[150] flex w-64 flex-col border-r border-white/10 bg-gradient-to-b from-[#071a3a] via-[#0b2c63] to-[#0b3f89] text-white shadow-2xl transition-transform duration-300 ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}>
+        <div className="flex h-16 items-center gap-3 border-b border-white/10 px-5">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-white/12 text-2xl shadow-inner">🏍️</div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.24em] text-sky-300">Barangay Express</p>
+            <p className="mt-1 text-lg font-black">Admin Portal</p>
+          </div>
+          <button type="button" onClick={() => setSidebarOpen(false)} className="ml-auto grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-xl lg:hidden">×</button>
+        </div>
+
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+          <p className="mb-3 px-3 text-[10px] font-black uppercase tracking-[0.22em] text-blue-300">Workspace</p>
+          {sidebarItems.map((item) => (
+            <button key={item.view} type="button" onClick={() => { setActiveAdminView(item.view); setSidebarOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-extrabold transition ${activeAdminView === item.view ? "bg-white text-blue-950 shadow-xl shadow-blue-950/20" : "text-blue-100 hover:bg-white/10 hover:text-white"}`}>
+              <span className={`grid h-8 w-8 place-items-center rounded-lg text-sm ${activeAdminView === item.view ? "bg-blue-50 text-blue-700" : "bg-white/10"}`}>{item.icon}</span>
+              <span className="flex-1">{item.label}</span>
+              {typeof item.count === "number" && <span className={`rounded-full px-2 py-0.5 text-[11px] ${activeAdminView === item.view ? "bg-blue-100 text-blue-700" : "bg-white/10 text-blue-100"}`}>{item.count}</span>}
+            </button>
+          ))}
+
+          <p className="mb-3 mt-7 px-3 text-[10px] font-black uppercase tracking-[0.22em] text-blue-300">Management</p>
+          <Link href="/dashboard/riders" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-extrabold text-blue-100 transition hover:bg-white/10 hover:text-white"><span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10">♟</span>Riders</Link>
+          <Link href="/dashboard/rider-applications" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-extrabold text-blue-100 transition hover:bg-white/10 hover:text-white"><span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10">✓</span>Applications</Link>
+          <Link href="/dashboard/rider-wallets" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-extrabold text-blue-100 transition hover:bg-white/10 hover:text-white"><span className="grid h-8 w-8 place-items-center rounded-lg bg-white/10">₱</span>Rider Wallets</Link>
+        </nav>
+
+        <div className="border-t border-white/10 p-3">
+          <div className="rounded-xl bg-white/10 p-3">
+            <div className="flex items-center gap-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-sky-400 font-black text-blue-950">A</div><div><p className="text-sm font-black">Administrator</p><p className="text-xs text-blue-200">Secure session</p></div></div>
+            <div className="mt-3"><LogoutButton /></div>
+          </div>
+        </div>
+      </aside>
+
+      <div className="min-h-screen lg:pl-64">
+        <header className="sticky top-0 z-[110] flex h-16 items-center gap-2.5 border-b border-slate-200/80 bg-white/90 px-4 shadow-sm backdrop-blur-xl md:px-7">
+          <button type="button" onClick={() => setSidebarOpen(true)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white text-xl shadow-sm lg:hidden">☰</button>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-600">{viewTitles[activeAdminView].eyebrow}</p>
+            <h1 className="truncate text-xl font-black text-slate-950 md:text-2xl">{viewTitles[activeAdminView].title}</h1>
+          </div>
+          <div className="hidden max-w-md flex-1 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 md:flex">
+            <span className="mr-2 text-slate-400">⌕</span><input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search booking, customer, address..." className="w-full bg-transparent text-sm font-semibold outline-none" />
+          </div>
+          <button type="button" onClick={refreshDashboardData} disabled={isAutoRefreshing} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white shadow-sm transition hover:bg-blue-50 disabled:opacity-50"><span className={isAutoRefreshing ? "animate-spin" : ""}>↻</span></button>
+          <div className="relative">
+            <button type="button" onClick={() => { setNotificationPanelOpen((current) => !current); setUnreadActivityCount(0); }} className="relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-white shadow-sm">♢{unreadActivityCount > 0 && <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-black text-white">{unreadActivityCount > 9 ? "9+" : unreadActivityCount}</span>}</button>
+          </div>
+          <Link href="/book" className="hidden rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-200 transition hover:bg-blue-800 sm:inline-flex">+ New Booking</Link>
+        </header>
+
+        {/* Legacy header kept hidden for compatibility */}
       {/* Header */}
-      <header className="relative overflow-visible bg-gradient-to-r from-blue-950 via-blue-800 to-sky-600 px-4 py-7 text-white shadow-xl md:px-6">
+      <header className="hidden">
         <div className="absolute -left-20 top-0 h-64 w-64 rounded-full bg-sky-400/20 blur-3xl" />
         <div className="absolute -right-20 bottom-0 h-72 w-72 rounded-full bg-blue-300/20 blur-3xl" />
 
@@ -1283,19 +1455,19 @@ useEffect(() => {
             <NotificationBell defaultHref="/dashboard" dark />
             <a
               href="/book"
-              className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/20"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 font-bold text-white backdrop-blur transition hover:bg-white/20"
             >
               + New Booking
             </a>
             <a
               href="/dashboard/riders"
-              className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/20"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 font-bold text-white backdrop-blur transition hover:bg-white/20"
             >
               🏍️ Manage Riders
             </a>
             <a
               href="/dashboard/rider-wallets"
-              className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/20"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 font-bold text-white backdrop-blur transition hover:bg-white/20"
             >
               💳 Rider Wallets
             </a>
@@ -1307,7 +1479,7 @@ useEffect(() => {
                 loadReviews();
               }}
               disabled={isLoading}
-              className="rounded-2xl bg-white px-5 py-3 font-extrabold text-blue-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl bg-white px-4 py-2.5 font-extrabold text-blue-800 shadow-lg transition hover:-translate-y-0.5 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {isLoading
                 ? "Refreshing..."
@@ -1320,7 +1492,7 @@ useEffect(() => {
               type="button"
               onClick={enableSoundAlerts}
               disabled={soundEnabled}
-              className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 font-bold text-white backdrop-blur transition hover:bg-white/20 disabled:cursor-default disabled:bg-emerald-500/30"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 font-bold text-white backdrop-blur transition hover:bg-white/20 disabled:cursor-default disabled:bg-emerald-500/30"
             >
               {soundEnabled ? "🔔 Sound Enabled" : "🔕 Enable Sound Alerts"}
             </button>
@@ -1330,7 +1502,7 @@ useEffect(() => {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 md:py-10">
+      <div className="mx-auto max-w-[1680px] px-4 py-4 md:px-6 md:py-5">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-blue-100 bg-white px-5 py-3 shadow-sm">
           <div className="flex items-center gap-2">
             <span
@@ -1489,8 +1661,158 @@ useEffect(() => {
   </p>
 </div>
         </div>
+<section id="dispatch-center-section" className={activeAdminView === "dispatch" ? "space-y-4" : "hidden"}>
+  <div className="flex flex-col gap-3 rounded-[1.5rem] bg-gradient-to-r from-slate-950 via-blue-950 to-blue-700 p-5 text-white shadow-xl md:flex-row md:items-center md:justify-between">
+    <div>
+      <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-emerald-400" /><p className="text-xs font-black uppercase tracking-[0.18em] text-sky-300">Live operations</p></div>
+      <h2 className="mt-2 text-2xl font-black">Barangay Express Dispatch Center</h2>
+      <p className="mt-1 text-sm font-semibold text-blue-100">Stable first-win dispatch is active. Every eligible online rider can see pending bookings.</p>
+    </div>
+    <div className="flex flex-wrap gap-2">
+      <Link href="/book" className="rounded-xl bg-white px-4 py-2.5 text-sm font-black text-blue-900">+ New booking</Link>
+      <button type="button" onClick={refreshDashboardData} className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-black text-white">Refresh live data</button>
+    </div>
+  </div>
+
+  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    {[
+      { label: "Waiting", value: stats.pendingOrders, note: "Visible to available riders", tone: "bg-amber-50 text-amber-700" },
+      { label: "Moving now", value: stats.activeOrders, note: "Accepted to delivered", tone: "bg-sky-50 text-sky-700" },
+      { label: "Online riders", value: operationsSnapshot.online.length, note: `${operationsSnapshot.available.length} ready`, tone: "bg-emerald-50 text-emerald-700" },
+      { label: "Busy riders", value: operationsSnapshot.busy.length, note: "Handling a delivery", tone: "bg-violet-50 text-violet-700" },
+      { label: "GPS live", value: liveRiders.length, note: "Sharing current location", tone: "bg-blue-50 text-blue-700" },
+    ].map((item) => <div key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-center justify-between"><p className="text-xs font-black uppercase tracking-[0.14em] text-slate-400">{item.label}</p><span className={`h-2.5 w-2.5 rounded-full ${item.tone.split(" ")[0].replace("50", "500")}`} /></div><p className="mt-2 text-3xl font-black text-slate-950">{item.value}</p><p className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ${item.tone}`}>{item.note}</p></div>)}
+  </div>
+
+  <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,.65fr)]">
+    <div className="space-y-4">
+      <section className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-amber-600">Dispatch queue</p><h3 className="mt-1 text-xl font-black text-slate-950">Bookings waiting for a rider</h3></div><button type="button" onClick={() => setActiveAdminView("orders")} className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-700">Manage all orders →</button></div>
+        <div className="mt-4 space-y-2">
+          {orders.filter((order) => (order.status || "Pending") === "Pending").slice(0, 8).map((order) => {
+            const ageMinutes = order.created_at ? Math.max(0, Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000)) : 0;
+            return <button key={order.id} type="button" onClick={() => { setSearchTerm(order.booking_no || String(order.id)); setActiveAdminView("orders"); }} className={`grid w-full gap-3 rounded-xl border p-3 text-left transition hover:bg-slate-50 md:grid-cols-[1fr_auto_auto] md:items-center ${ageMinutes >= 5 ? "border-red-200 bg-red-50/60" : ageMinutes >= 2 ? "border-amber-200 bg-amber-50/50" : "border-slate-100"}`}><div className="min-w-0"><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${ageMinutes >= 5 ? "animate-pulse bg-red-500" : "bg-amber-500"}`} /><p className="truncate text-sm font-black text-slate-900">{order.booking_no || `Order #${order.id}`}</p></div><p className="mt-1 truncate text-xs font-semibold text-slate-500">{order.pickup_address || "Pickup not set"} → {order.dropoff_address || "Drop-off not set"}</p></div><span className={`rounded-full px-3 py-1 text-[10px] font-black ${ageMinutes >= 5 ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>{ageMinutes} min waiting</span><span className="text-sm font-black text-slate-900">{formatCurrency(Number(order.price || 0))}</span></button>;
+          })}
+          {orders.filter((order) => (order.status || "Pending") === "Pending").length === 0 && <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/50 p-8 text-center"><p className="text-3xl">✅</p><p className="mt-2 font-black text-emerald-800">No unassigned bookings</p><p className="mt-1 text-sm font-semibold text-emerald-700">The queue is clear.</p></div>}
+        </div>
+      </section>
+
+      <section className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Active trips</p><h3 className="mt-1 text-xl font-black text-slate-950">Deliveries moving now</h3></div><button type="button" onClick={() => setActiveAdminView("map")} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Open full map →</button></div>
+        <div className="mt-4 grid gap-2 md:grid-cols-2">
+          {operationsSnapshot.activeOrders.slice(0, 8).map((order) => <button key={order.id} type="button" onClick={() => { setSearchTerm(order.booking_no || String(order.id)); setActiveAdminView("orders"); }} className="rounded-xl border border-slate-100 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50/40"><div className="flex items-center justify-between gap-3"><p className="truncate text-sm font-black text-slate-900">{order.booking_no || `Order #${order.id}`}</p><span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black ${getStatusClass(order.status)}`}>{order.status}</span></div><p className="mt-2 truncate text-xs font-semibold text-slate-500">{order.pickup_address || "Pickup"} → {order.dropoff_address || "Drop-off"}</p><div className="mt-3 flex items-center justify-between"><span className="text-xs font-black text-blue-700">View delivery →</span><span className="font-black text-slate-900">{formatCurrency(Number(order.price || 0))}</span></div></button>)}
+          {operationsSnapshot.activeOrders.length === 0 && <div className="col-span-full rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm font-bold text-slate-500">No active deliveries right now.</div>}
+        </div>
+      </section>
+    </div>
+
+    <aside className="space-y-4">
+      <section className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-600">Fleet status</p><h3 className="mt-1 text-xl font-black text-slate-950">Riders now</h3></div><Link href="/dashboard/riders" className="text-xs font-black text-blue-700">Manage →</Link></div>
+        <div className="mt-4 space-y-2">{riderSummaries.map((rider) => <div key={rider.id} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3"><span className={`h-3 w-3 rounded-full ${rider.is_active && rider.is_online ? rider.active_deliveries ? "bg-amber-500" : "bg-emerald-500" : "bg-slate-300"}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-900">{rider.full_name}</p><p className="truncate text-xs font-semibold text-slate-500">{rider.vehicle_type || "Vehicle not set"}{rider.plate_number ? ` • ${rider.plate_number}` : ""}</p></div><span className="text-[10px] font-black uppercase text-slate-500">{!rider.is_active ? "Inactive" : rider.is_online ? rider.active_deliveries ? "Delivering" : "Available" : "Offline"}</span></div>)}</div>
+      </section>
+
+      <section className="rounded-[1.5rem] border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+        <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">Live events</p><h3 className="mt-1 text-xl font-black text-slate-950">Operations feed</h3></div><button type="button" onClick={() => setNotificationPanelOpen(true)} className="text-xs font-black text-blue-700">Open all →</button></div>
+        <div className="mt-4 space-y-2">{activityLogs.slice(0, 8).map((item) => <div key={item.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-3"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-50">{item.actor_type === "rider" ? "🏍️" : item.actor_type === "customer" ? "👤" : "🛡️"}</span><div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-800">{item.action}</p><p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.booking_no || item.details || item.actor}</p></div><span className="shrink-0 text-[10px] font-bold text-slate-400">{new Date(item.created_at).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div>)}{activityLogs.length === 0 && <p className="py-8 text-center text-sm font-bold text-slate-500">No live events yet.</p>}</div>
+      </section>
+    </aside>
+  </div>
+</section>
+
+<section id="dashboard-section" className={activeAdminView === "dashboard" ? "space-y-4" : "hidden"}>
+  <div className="grid gap-4 2xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,.45fr)]">
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-[1.35rem] bg-gradient-to-br from-blue-950 via-blue-800 to-sky-600 px-5 py-4 text-white shadow-xl shadow-blue-200/50">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] text-sky-300">Control room</p>
+            <h2 className="mt-1 text-2xl font-black">Everything under control.</h2>
+            <p className="mt-1 max-w-2xl text-sm font-semibold text-blue-100">Live bookings, fleet availability, payments, and customer activity in one view.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => setActiveAdminView("dispatch")} className="rounded-xl bg-emerald-400 px-4 py-2 text-sm font-black text-emerald-950 shadow-md transition hover:bg-emerald-300">Open dispatch</button>
+            <Link href="/book" className="rounded-xl bg-white px-4 py-2 text-sm font-black text-blue-800 shadow-md transition hover:bg-blue-50">+ New booking</Link>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {[
+          { label: "Orders", value: stats.totalOrders, note: "All bookings", icon: "▣", tone: "text-blue-700 bg-blue-50", view: "orders" as AdminView },
+          { label: "Pending", value: stats.pendingOrders, note: "Need rider", icon: "◷", tone: "text-amber-700 bg-amber-50", view: "orders" as AdminView },
+          { label: "Active", value: stats.activeOrders, note: "Moving now", icon: "➜", tone: "text-sky-700 bg-sky-50", view: "map" as AdminView },
+          { label: "Riders", value: operationsSnapshot.online.length, note: `${operationsSnapshot.available.length} available`, icon: "●", tone: "text-emerald-700 bg-emerald-50", view: "map" as AdminView },
+          { label: "Revenue", value: formatCurrency(stats.totalEarnings), note: "Completed", icon: "₱", tone: "text-violet-700 bg-violet-50", view: "payments" as AdminView },
+        ].map((card) => (
+          <button key={card.label} type="button" onClick={() => setActiveAdminView(card.view)} className="group rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-lg">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{card.label}</p><p className="mt-1 text-2xl font-black text-slate-950">{card.value}</p></div>
+              <span className={`grid h-9 w-9 place-items-center rounded-xl text-base font-black ${card.tone}`}>{card.icon}</span>
+            </div>
+            <p className="mt-2 text-[11px] font-bold text-slate-500">{card.note}<span className="float-right text-blue-600 transition group-hover:translate-x-1">→</span></p>
+          </button>
+        ))}
+      </div>
+
+      <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><p className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-600">Live dispatch</p><h3 className="mt-1 text-lg font-black text-slate-950">Orders moving now</h3></div>
+          <button type="button" onClick={() => setActiveAdminView("dispatch")} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Open control room →</button>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {operationsSnapshot.activeOrders.slice(0, 6).map((order) => {
+            const assignedRider = riderSummaries.find((rider) => String(rider.id) === String(order.assigned_rider));
+            return (
+              <button key={order.id} type="button" onClick={() => { setSearchTerm(order.booking_no || String(order.id)); setActiveAdminView("orders"); }} className="rounded-xl border border-slate-100 p-3 text-left transition hover:border-blue-200 hover:bg-blue-50/40">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0"><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${getStatusDotClass(order.status)}`} /><p className="truncate text-sm font-black text-slate-900">{order.booking_no || `Order #${order.id}`}</p></div><p className="mt-1 truncate text-xs font-semibold text-slate-500">{assignedRider?.full_name || "Assigned rider"}</p></div>
+                  <span className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-black ${getStatusClass(order.status)}`}>{order.status || "Pending"}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-[1fr_auto] items-end gap-3"><div className="min-w-0"><p className="truncate text-xs font-bold text-slate-600">📍 {order.pickup_address || "Pickup not set"}</p><p className="mt-1 truncate text-xs font-bold text-slate-600">🏁 {order.dropoff_address || "Drop-off not set"}</p></div><span className="text-sm font-black text-slate-900">{formatCurrency(Number(order.price || 0))}</span></div>
+              </button>
+            );
+          })}
+          {operationsSnapshot.activeOrders.length === 0 && <div className="col-span-full rounded-2xl border border-dashed border-slate-200 p-7 text-center"><p className="text-3xl">🛵</p><p className="mt-2 font-black text-slate-800">No active deliveries</p><p className="mt-1 text-sm font-semibold text-slate-500">Accepted bookings will appear here automatically.</p></div>}
+        </div>
+      </section>
+
+      <div className="grid gap-4 xl:grid-cols-[.9fr_1.1fr]">
+        <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between"><div><p className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-600">7-day pulse</p><h3 className="mt-1 text-lg font-black text-slate-950">Revenue activity</h3></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{formatCurrency(operationsSnapshot.days.reduce((sum, day) => sum + day.revenue, 0))}</span></div>
+          <div className="mt-3 flex h-32 items-end gap-2 rounded-xl bg-slate-50 p-3">{operationsSnapshot.days.map((day, index) => <div key={day.label} className="group flex flex-1 flex-col items-center justify-end gap-1.5"><span className="text-[9px] font-black text-slate-500 opacity-0 transition group-hover:opacity-100">{day.revenue ? formatCurrency(day.revenue) : "₱0"}</span><div title={`${day.label}: ${formatCurrency(day.revenue)}`} className={`w-full rounded-t-lg bg-gradient-to-t transition-all ${index === operationsSnapshot.days.length - 1 ? "from-emerald-600 to-emerald-300" : "from-blue-700 to-sky-400"}`} style={{ height: `${Math.max(7, (day.revenue / operationsSnapshot.maxRevenue) * 72)}px` }} /><span className="text-[9px] font-black uppercase text-slate-400">{day.label}</span></div>)}</div>
+        </section>
+
+        <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between"><div><p className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-600">Activity timeline</p><h3 className="mt-1 text-lg font-black text-slate-950">Latest updates</h3></div><button type="button" onClick={() => setNotificationPanelOpen(true)} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Open all →</button></div>
+          <div className="mt-3">{operationsSnapshot.recentNotifications.slice(0, 5).map((item, index) => <div key={item.id} className="relative flex gap-3 pb-3 last:pb-0"><div className="relative flex w-8 shrink-0 justify-center"><span className="z-10 grid h-8 w-8 place-items-center rounded-full bg-blue-50 text-sm ring-4 ring-white">{item.actor_type === "rider" ? "🏍️" : item.actor_type === "customer" ? "👤" : "🛡️"}</span>{index < Math.min(4, operationsSnapshot.recentNotifications.length - 1) && <span className="absolute bottom-[-4px] top-8 w-px bg-slate-200" />}</div><div className="min-w-0 flex-1 rounded-xl border border-slate-100 px-3 py-2"><div className="flex items-start justify-between gap-3"><p className="truncate text-sm font-black text-slate-800">{item.action}</p><span className="shrink-0 text-[10px] font-bold text-slate-400">{new Date(item.created_at).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div><p className="mt-1 truncate text-xs font-semibold text-slate-500">{item.booking_no || item.details || item.actor}</p></div></div>)}{operationsSnapshot.recentNotifications.length === 0 && <div className="rounded-2xl border border-dashed border-slate-200 p-6 text-center text-sm font-bold text-slate-500">No recent activity yet.</div>}</div>
+        </section>
+      </div>
+    </div>
+
+    <aside className="space-y-4">
+      <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex items-center justify-between"><div><p className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-600">Fleet status</p><h3 className="mt-1 text-lg font-black text-slate-950">Riders now</h3></div><Link href="/dashboard/riders" className="text-xs font-black text-blue-700">Manage →</Link></div>
+        <div className="mt-3 grid grid-cols-3 gap-2"><div className="rounded-xl bg-emerald-50 p-2 text-center"><p className="text-xl font-black text-emerald-700">{operationsSnapshot.available.length}</p><p className="text-[9px] font-black uppercase text-emerald-700">Available</p></div><div className="rounded-xl bg-amber-50 p-2 text-center"><p className="text-xl font-black text-amber-700">{operationsSnapshot.busy.length}</p><p className="text-[9px] font-black uppercase text-amber-700">Delivering</p></div><div className="rounded-xl bg-slate-100 p-2 text-center"><p className="text-xl font-black text-slate-700">{riderSummaries.filter((r) => !r.is_online || !r.is_active).length}</p><p className="text-[9px] font-black uppercase text-slate-600">Offline</p></div></div>
+        <div className="mt-3 space-y-1.5">{ridersLoading ? <p className="py-5 text-center text-sm font-bold text-slate-500">Loading riders...</p> : riderSummaries.slice(0, 6).map((rider) => <div key={rider.id} className="flex items-center gap-2.5 rounded-xl border border-slate-100 p-2.5"><span className={`h-3 w-3 rounded-full ${rider.is_active && rider.is_online ? rider.active_deliveries ? "bg-amber-500" : "bg-emerald-500" : "bg-slate-300"}`} /><div className="min-w-0 flex-1"><p className="truncate text-sm font-black text-slate-800">{rider.full_name}</p><p className="truncate text-[11px] font-semibold text-slate-500">{rider.vehicle_type || "Vehicle not set"}{rider.plate_number ? ` • ${rider.plate_number}` : ""}</p></div><span className="text-[9px] font-black uppercase text-slate-500">{!rider.is_active ? "Inactive" : rider.is_online ? rider.active_deliveries ? "Delivering" : "Available" : "Offline"}</span></div>)}</div>
+      </section>
+
+      <section className="overflow-hidden rounded-[1.35rem] border border-slate-200 bg-white shadow-sm">
+        <div className="bg-gradient-to-br from-slate-950 to-blue-900 p-4 text-white"><div className="flex items-center justify-between"><div><p className="text-[11px] font-black uppercase tracking-[0.16em] text-sky-300">Field monitor</p><h3 className="mt-1 text-lg font-black">Live GPS summary</h3></div><span className="rounded-full bg-emerald-400/20 px-2.5 py-1 text-[10px] font-black text-emerald-200">● LIVE</span></div></div>
+        <div className="relative h-40 overflow-hidden bg-[radial-gradient(circle_at_25%_25%,#dbeafe_0,transparent_34%),radial-gradient(circle_at_75%_65%,#bfdbfe_0,transparent_30%),linear-gradient(135deg,#f8fafc,#e0f2fe)] p-5">
+          <div className="absolute inset-0 opacity-35" style={{ backgroundImage: "linear-gradient(#94a3b8 1px, transparent 1px), linear-gradient(90deg, #94a3b8 1px, transparent 1px)", backgroundSize: "32px 32px" }} />
+          {liveRiders.slice(0, 5).map((rider, index) => <div key={`${rider.orderId}-${index}`} className="absolute grid h-9 w-9 place-items-center rounded-full border-4 border-white bg-blue-700 text-base shadow-xl" style={{ left: `${18 + ((index * 19) % 65)}%`, top: `${20 + ((index * 23) % 55)}%` }} title={`${rider.riderName} • ${rider.bookingNo}`}>🏍️</div>)}
+          {liveRiders.length === 0 && <div className="relative z-10 grid h-full place-items-center text-center"><div><p className="text-3xl">🗺️</p><p className="mt-2 font-black text-slate-800">No live GPS yet</p><p className="mt-1 text-xs font-semibold text-slate-500">Markers appear when riders share location.</p></div></div>}
+        </div>
+        <div className="grid grid-cols-3 divide-x divide-slate-100 border-t border-slate-100"><div className="p-2.5 text-center"><p className="text-lg font-black text-slate-900">{liveRiders.length}</p><p className="text-[9px] font-black uppercase text-slate-400">GPS live</p></div><div className="p-2.5 text-center"><p className="text-lg font-black text-slate-900">{stats.activeOrders}</p><p className="text-[9px] font-black uppercase text-slate-400">Active</p></div><button type="button" onClick={() => setActiveAdminView("map")} className="p-2.5 text-center hover:bg-blue-50"><p className="text-lg font-black text-blue-700">→</p><p className="text-[9px] font-black uppercase text-blue-600">Open map</p></button></div>
+      </section>
+
+      <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm"><p className="text-[11px] font-black uppercase tracking-[0.16em] text-blue-600">Quick actions</p><h3 className="mt-1 text-lg font-black text-slate-950">Move faster</h3><div className="mt-3 grid gap-2"><Link href="/dashboard/riders" className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black text-slate-800 hover:border-blue-200 hover:bg-blue-50"><span>Manage riders</span><span>→</span></Link><Link href="/dashboard/rider-applications" className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black text-slate-800 hover:border-blue-200 hover:bg-blue-50"><span>Review applications</span><span>→</span></Link><Link href="/dashboard/rider-wallets" className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-black text-slate-800 hover:border-blue-200 hover:bg-blue-50"><span>Rider wallets</span><span>→</span></Link></div></section>
+    </aside>
+  </div>
+</section>
 {/* Statistics */}
-<section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+<section className={activeAdminView === "dashboard" ? "hidden" : "grid gap-3 sm:grid-cols-2 xl:grid-cols-5"}>
   <button
     type="button"
     onClick={() => navigateFromStatCard("orders-section", "All")}
@@ -1646,65 +1968,67 @@ useEffect(() => {
 
 
 
-{/* Quick Navigation */}
-<nav className="sticky top-3 z-[80] mt-6">
-  <div className="flex gap-2 overflow-x-auto rounded-2xl border border-blue-100 bg-white/95 p-2 shadow-xl shadow-slate-200/60 backdrop-blur">
-    {[
-      {
-        id: "operations-section",
-        icon: "⚙️",
-        label: "Operations",
-      },
-      {
-        id: "payments-section",
-        icon: "💳",
-        label: "Payments",
-      },
-      {
-        id: "rider-map-section",
-        icon: "🗺️",
-        label: "Rider Map",
-      },
-      {
-        id: "reviews-section",
-        icon: "⭐",
-        label: "Reviews",
-      },
-      {
-        id: "analytics-section",
-        icon: "📊",
-        label: "Analytics",
-      },
-      {
-        id: "orders-section",
-        icon: "📦",
-        label: "Orders",
-      },
-    ].map((item) => (
-      <button
-        key={item.id}
-        type="button"
-        onClick={() => scrollToSection(item.id)}
-        className="shrink-0 rounded-xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-extrabold text-slate-700 transition hover:border-blue-600 hover:bg-blue-700 hover:text-white"
-      >
-        <span className="mr-2">{item.icon}</span>
-        {item.label}
-      </button>
-    ))}
+{/* Compact workspace navigation */}
+<nav className="hidden">
+  <div className="rounded-3xl border border-blue-100 bg-white/95 p-2 shadow-xl shadow-slate-200/60 backdrop-blur">
+    <div className="flex gap-2 overflow-x-auto">
+      {[
+        { view: "orders", icon: "📦", label: "Orders", count: orders.length },
+        { view: "payments", icon: "💳", label: "Payments" },
+        { view: "operations", icon: "⚙️", label: "Operations" },
+        { view: "map", icon: "🗺️", label: "Rider Map", count: liveRiders.length },
+        { view: "reviews", icon: "⭐", label: "Reviews", count: reviews.length },
+        { view: "analytics", icon: "📊", label: "Analytics" },
+      ].map((item) => (
+        <button
+          key={item.view}
+          type="button"
+          onClick={() => {
+            setActiveAdminView(item.view as AdminView);
+            window.scrollTo({ top: 360, behavior: "smooth" });
+          }}
+          className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-extrabold transition ${
+            activeAdminView === item.view
+              ? "bg-blue-700 text-white shadow-lg shadow-blue-200"
+              : "bg-slate-50 text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+          }`}
+        >
+          <span>{item.icon}</span>
+          {item.label}
+          {typeof item.count === "number" && (
+            <span className={`rounded-full px-2 py-0.5 text-xs ${activeAdminView === item.view ? "bg-white/20" : "bg-white text-slate-500"}`}>
+              {item.count}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
   </div>
 </nav>
 
-<div id="operations-section" className="scroll-mt-28">
+<div className={activeAdminView === "dashboard" ? "hidden" : "mt-6 rounded-3xl border border-slate-200 bg-white px-5 py-4 shadow-sm"}>
+  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-blue-500">Admin workspace</p>
+      <h2 className="mt-1 text-xl font-black text-blue-950">
+        {{ dashboard: "Dashboard", dispatch: "Live Dispatch Center", orders: "Delivery Orders", payments: "Payment Center", operations: "Operations Center", map: "Live Rider Map", reviews: "Customer Reviews", analytics: "Business Analytics" }[activeAdminView]}
+      </h2>
+    </div>
+    <p className="text-sm font-semibold text-slate-500">One section at a time for a cleaner dashboard.</p>
+  </div>
+</div>
+
+<div id="operations-section" className={activeAdminView === "operations" ? "scroll-mt-28" : "hidden"}>
   <OperationsCenter />
 </div>
 
-<div id="payments-section" className="scroll-mt-28">
+<div id="payments-section" className={activeAdminView === "payments" ? "scroll-mt-28" : "hidden"}>
   <PaymentsCenter />
 </div>
 {/* Live Admin Dispatch Map */}
 <section
   id="rider-map-section"
-  className="scroll-mt-28 mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-blue-100/60"
+  className={activeAdminView === "map" ? "scroll-mt-28 mt-8 overflow-hidden rounded-[1.5rem] border border-blue-100 bg-white shadow-xl shadow-blue-100/60" : "hidden"}
 >
           <div className="bg-gradient-to-r from-slate-950 via-blue-950 to-blue-700 px-6 py-6 text-white md:px-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -1731,7 +2055,7 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="p-5 md:p-8">
+          <div className="p-5 md:p-6">
             {liveMapError && (
               <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 font-bold text-red-700">
                 ⚠️ {liveMapError}
@@ -1900,7 +2224,7 @@ useEffect(() => {
 
         <section
   id="reviews-section"
-  className="scroll-mt-28 mt-8 overflow-hidden rounded-[2rem] border border-amber-100 bg-white shadow-xl shadow-amber-100/60"
+  className={activeAdminView === "reviews" ? "scroll-mt-28 mt-8 overflow-hidden rounded-[1.5rem] border border-amber-100 bg-white shadow-xl shadow-amber-100/60" : "hidden"}
 >
           <div className="bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500 px-6 py-6 text-white md:px-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1921,7 +2245,7 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="p-5 md:p-8">
+          <div className="p-5 md:p-6">
             {reviewsError && (
               <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 font-bold text-red-700">
                 ⚠️ {reviewsError}
@@ -1982,7 +2306,7 @@ useEffect(() => {
                 <h3 className="text-lg font-extrabold text-blue-950">
                   Rating distribution
                 </h3>
-                <div className="mt-5 space-y-3">
+                <div className="mt-3 space-y-1.5">
                   {[5, 4, 3, 2, 1].map((star) => {
                     const count = reviewAnalytics.distribution[star] || 0;
                     const percent =
@@ -2060,7 +2384,7 @@ useEffect(() => {
         {/* Operations Analytics */}
         <section
   id="analytics-section"
-  className="scroll-mt-28 mt-8 overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60"
+  className={activeAdminView === "analytics" ? "scroll-mt-28 mt-8 overflow-hidden rounded-[1.5rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60" : "hidden"}
 > 
           <div className="bg-gradient-to-r from-blue-950 via-blue-800 to-sky-600 px-6 py-6 text-white md:px-8">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -2095,7 +2419,7 @@ useEffect(() => {
             </div>
           </div>
 
-          <div className="p-5 md:p-8">
+          <div className="p-5 md:p-6">
             <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
               <div className="rounded-3xl border border-blue-100 bg-blue-50 p-5 xl:col-span-1">
                 <p className="text-sm font-bold text-blue-700">Range Orders</p>
@@ -2164,7 +2488,7 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="mt-6 grid gap-6 xl:grid-cols-2">
+            <div className="mt-6 grid gap-4 xl:grid-cols-2">
               <article className="rounded-3xl border border-slate-200 bg-white p-5 md:p-6">
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <div>
@@ -2373,7 +2697,7 @@ useEffect(() => {
                   </h3>
                 </div>
 
-                <div className="mt-5 space-y-3">
+                <div className="mt-3 space-y-1.5">
                   {operationsAnalytics.statusDistribution
                     .filter((item) => item.count > 0)
                     .map((item) => (
@@ -2425,7 +2749,7 @@ useEffect(() => {
                     Wala pang rider reviews.
                   </div>
                 ) : (
-                  <div className="mt-5 space-y-3">
+                  <div className="mt-3 space-y-1.5">
                     {riderLeaderboard.map((rider, index) => (
                       <div
                         key={rider.riderId}
@@ -2536,7 +2860,7 @@ useEffect(() => {
         {/* Orders */}
 <section
   id="orders-section"
-  className="scroll-mt-28 mt-10"
+  className={activeAdminView === "orders" ? "scroll-mt-28 mt-8" : "hidden"}
 >
           <div className="mb-5 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -2588,15 +2912,15 @@ useEffect(() => {
               )}
             </div>
           ) : (
-            <div className="space-y-6">
-              {filteredOrders.map((order) => {
+            <div className="space-y-4">
+              {paginatedOrders.map((order) => {
                 const currentStatus = order.status || "Pending";
                 const orderReview = reviewsByOrderId.get(order.id);
 
                 return (
                   <article
                     key={order.id}
-                    className="overflow-hidden rounded-[2rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60"
+                    className="overflow-hidden rounded-[1.5rem] border border-blue-100 bg-white shadow-xl shadow-slate-200/60"
                   >
                     {/* Order header */}
                     <div className="flex flex-col gap-5 border-b border-slate-100 bg-gradient-to-r from-blue-50/80 to-sky-50/60 p-5 md:flex-row md:items-center md:justify-between md:p-6">
@@ -3011,6 +3335,19 @@ useEffect(() => {
               })}
             </div>
           )}
+
+          {!isLoading && filteredOrders.length > ordersPerPage && (
+            <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm font-semibold text-slate-500">
+                Showing {(orderPage - 1) * ordersPerPage + 1}–{Math.min(orderPage * ordersPerPage, filteredOrders.length)} of {filteredOrders.length}
+              </p>
+              <div className="flex items-center gap-2">
+                <button type="button" disabled={orderPage === 1} onClick={() => setOrderPage((page) => Math.max(1, page - 1))} className="rounded-xl border border-slate-200 px-4 py-2 font-bold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+                <span className="rounded-xl bg-blue-50 px-4 py-2 text-sm font-extrabold text-blue-700">Page {orderPage} of {totalOrderPages}</span>
+                <button type="button" disabled={orderPage === totalOrderPages} onClick={() => setOrderPage((page) => Math.min(totalOrderPages, page + 1))} className="rounded-xl bg-blue-700 px-4 py-2 font-bold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+              </div>
+            </div>
+          )}
         </section>
       </div>
 
@@ -3148,7 +3485,7 @@ useEffect(() => {
         </div>
       )}
 
-      <footer className="mt-12 bg-blue-950 px-6 py-8 text-center text-blue-200">
+      <footer className="hidden">
         <p className="font-semibold">
           © 2026 Barangay Express Admin Portal
         </p>
@@ -3235,6 +3572,7 @@ useEffect(() => {
         >
           {soundEnabled ? "🔔" : "🔕"}
         </button>
+      </div>
       </div>
     </main>
   );

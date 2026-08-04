@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import BookingChatPanel from "@/app/components/BookingChatPanel";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
@@ -14,6 +15,7 @@ const CustomerLiveMap = dynamic(() => import("./components/CustomerLiveMap"), {
 });
 
 type TrackingOrder = {
+  id: number;
   booking_no: string;
   package_type: string | null;
   status: string | null;
@@ -40,6 +42,8 @@ type AssignedRiderProfile = {
   phone: string | null;
   vehicle_type: string | null;
   plate_number: string | null;
+  average_rating?: number | null;
+  review_count?: number;
 };
 
 type RiderLocation = {
@@ -665,33 +669,40 @@ export default function TrackPage() {
               </div>
 
               <div className="p-4 md:p-6">
-                {showLiveMap && riderLocation ? (
-                  <>
-                   {assignedRider && (
-                    <section className="mb-5 rounded-3xl border border-blue-100 bg-white p-5 shadow-sm">
-                      <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-blue-600">
-                        Assigned rider
-                      </p>
-                      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                {assignedRider && (
+                  <section className="mb-5 overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-white to-blue-50 shadow-sm">
+                    <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="grid h-16 w-16 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-blue-700 to-sky-500 text-3xl text-white shadow-lg">
+                          🏍️
+                        </div>
                         <div>
-                          <h3 className="text-xl font-black text-slate-950">🏍️ {assignedRider.full_name}</h3>
-                          <p className="mt-1 text-sm text-slate-600">
+                          <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-blue-600">Assigned rider</p>
+                          <h3 className="mt-1 text-2xl font-black text-slate-950">{assignedRider.full_name}</h3>
+                          <p className="mt-1 text-sm font-semibold text-slate-600">
                             {assignedRider.vehicle_type || "Motorcycle"}
-                            {assignedRider.plate_number ? ` • ${assignedRider.plate_number}` : ""}
+                            {assignedRider.plate_number ? ` • ${assignedRider.plate_number}` : " • No plate recorded"}
+                          </p>
+                          <p className="mt-2 text-sm font-extrabold text-amber-600">
+                            ⭐ {assignedRider.average_rating != null ? assignedRider.average_rating.toFixed(1) : "New rider"}
+                            {assignedRider.review_count ? ` (${assignedRider.review_count} review${assignedRider.review_count === 1 ? "" : "s"})` : ""}
                           </p>
                         </div>
-                        {assignedRider.phone && (
-                          <a
-                            href={`tel:${assignedRider.phone}`}
-                            className="rounded-2xl bg-blue-600 px-5 py-3 text-center font-extrabold text-white hover:bg-blue-700"
-                          >
-                            📞 Call rider
-                          </a>
-                        )}
                       </div>
-                    </section>
-                  )}
+                      <div className="flex flex-wrap gap-2">
+                        <span className={`rounded-2xl px-4 py-3 text-sm font-extrabold ${riderLocationIsFresh ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`}>
+                          {riderLocationIsFresh ? "● Rider location live" : "● Waiting for rider GPS"}
+                        </span>
+                      </div>
+                    </div>
+                    {order.id && (
+                      <BookingChatPanel orderId={order.id} bookingNo={order.booking_no} role="customer" />
+                    )}
+                  </section>
+                )}
 
+                {showLiveMap && riderLocation ? (
+                  <>
                   <CustomerLiveMap
   latitude={riderLocation.latitude}
   longitude={riderLocation.longitude}

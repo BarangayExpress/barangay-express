@@ -1376,7 +1376,7 @@ useEffect(() => {
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
           <p className="mb-3 px-3 text-[10px] font-black uppercase tracking-[0.22em] text-blue-300">Workspace</p>
           {sidebarItems.map((item) => (
-            <button key={item.view} type="button" onClick={() => { setActiveAdminView(item.view); setSidebarOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-extrabold transition ${activeAdminView === item.view ? "bg-white text-blue-950 shadow-xl shadow-blue-950/20" : "text-blue-100 hover:bg-white/10 hover:text-white"}`}>
+            <button key={item.view} type="button" onClick={() => { if (item.view === "dispatch") { window.location.href = "/dashboard/live-dispatch"; return; } setActiveAdminView(item.view); setSidebarOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }} className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-extrabold transition ${activeAdminView === item.view ? "bg-white text-blue-950 shadow-xl shadow-blue-950/20" : "text-blue-100 hover:bg-white/10 hover:text-white"}`}>
               <span className={`grid h-8 w-8 place-items-center rounded-lg text-sm ${activeAdminView === item.view ? "bg-blue-50 text-blue-700" : "bg-white/10"}`}>{item.icon}</span>
               <span className="flex-1">{item.label}</span>
               {typeof item.count === "number" && <span className={`rounded-full px-2 py-0.5 text-[11px] ${activeAdminView === item.view ? "bg-blue-100 text-blue-700" : "bg-white/10 text-blue-100"}`}>{item.count}</span>}

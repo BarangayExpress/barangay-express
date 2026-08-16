@@ -3,14 +3,19 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-type Application = Record<string, any> & { id: string; full_name: string; email: string; phone: string; status: string; created_at: string; document_urls?: Record<string,string> };
+type Application = Record<
+  string,
+  string | number | boolean | null | undefined
+> & {
+ id: string; full_name: string; email: string; phone: string; status: string; created_at: string; document_urls?: Record<string,string> };
 type Credentials = { email: string; temporary_password: string } | null;
 const documentLabels: Record<string,string> = { license_front_path:"License Front", license_back_path:"License Back", or_path:"OR", cr_path:"CR", vehicle_photo_path:"Vehicle Photo", rider_selfie_path:"Rider Selfie", nbi_clearance_path:"NBI Clearance", barangay_clearance_path:"Barangay Clearance" };
 
 export default function RiderApplicationsClient() {
   const [items,setItems]=useState<Application[]>([]), [status,setStatus]=useState("pending"), [loading,setLoading]=useState(true), [saving,setSaving]=useState<string|null>(null), [error,setError]=useState("");
   const [credentials,setCredentials]=useState<Credentials>(null);
-  const load=useCallback(async()=>{setLoading(true);setError("");try{const r=await fetch(`/api/admin/rider-applications?status=${status}&t=${Date.now()}`,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||"Unable to load applications.");setItems(j.applications||[])}catch(e){setError(e instanceof Error?e.message:"Unable to load applications.")}finally{setLoading(false)}},[status]);
+  const load=useCallback(async()=>{setLoading(true);setError("");try
+    {const r=await fetch(`/api/admin/rider-applications?status=${status}&t=${Date.now()}`,{cache:"no-store"});const j=await r.json();if(!r.ok)throw new Error(j.error||"Unable to load applications.");setItems(j.applications||[])}catch(e){setError(e instanceof Error?e.message:"Unable to load applications.")}finally{setLoading(false)}},[status]);
   useEffect(()=>{void load()},[load]);
 
   async function review(item:Application,action:"approve"|"reject"|"request_documents"|"under_review"){

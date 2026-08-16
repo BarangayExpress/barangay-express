@@ -40,7 +40,17 @@ type Order = {
   package_type: string | null;
   notes: string | null;
   payment_method: string | null;
+
+  item_payment_flow: string | null;
+  estimated_item_amount: number | string | null;
+  actual_item_amount: number | string | null;
+  purchase_payment_status: string | null;
+  order_amount: number | string | null;
+  total_amount: number | string | null;
+  merchant_payment_status: string | null;
+  
   status: string | null;
+  assigned_rider: string | null;
   price: number | string | null;
   created_at: string | null;
   proof_photo_url: string | null;
@@ -3070,6 +3080,86 @@ useEffect(() => {
                               {formatCurrency(Number(order.price || 0))}
                             </p>
                           </div>
+
+                          {order.item_payment_flow === "rider_advance_cod" && (
+  <div className="border-t border-amber-200 pt-4">
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+      <p className="text-xs font-black uppercase tracking-wider text-amber-700">
+        Rider Advance / COD
+      </p>
+
+      <div className="mt-3 space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm font-semibold text-slate-500">
+            Estimated item cost
+          </span>
+          <span className="text-sm font-extrabold text-amber-950">
+            {formatCurrency(
+              Number(order.estimated_item_amount || order.order_amount || 0)
+            )}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm font-semibold text-slate-500">
+            Actual item cost
+          </span>
+          <span className="text-sm font-extrabold text-amber-950">
+            {order.actual_item_amount
+              ? formatCurrency(Number(order.actual_item_amount))
+              : "Not entered"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm font-semibold text-slate-500">
+            COD status
+          </span>
+          <span className="text-right text-sm font-extrabold text-amber-950">
+            {order.purchase_payment_status || "Pending"}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-4 border-t border-amber-200 pt-2">
+          <span className="text-sm font-black text-slate-700">
+            Final customer total
+          </span>
+          <span className="text-lg font-black text-amber-950">
+            {formatCurrency(
+              Number(order.price || 0) +
+                Number(
+                  order.actual_item_amount ||
+                    order.estimated_item_amount ||
+                    order.order_amount ||
+                    0
+                )
+            )}
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
+
+{order.item_payment_flow === "merchant_direct" && (
+  <div className="border-t border-blue-100 pt-4">
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+      <p className="text-xs font-black uppercase tracking-wider text-blue-700">
+        Merchant Direct Payment
+      </p>
+
+      <div className="mt-3 flex items-center justify-between gap-4">
+        <span className="text-sm font-semibold text-slate-500">
+          Payment status
+        </span>
+
+        <span className="text-right text-sm font-extrabold text-blue-950">
+          {order.merchant_payment_status || "Waiting for Merchant QR"}
+        </span>
+      </div>
+    </div>
+  </div>
+)}
 
                           {order.notes && (
                             <div className="border-t border-blue-100 pt-4">

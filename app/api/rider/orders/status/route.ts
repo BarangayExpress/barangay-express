@@ -28,7 +28,12 @@ type OrderRow = {
   payment_method: string | null;
   payment_status: string | null;
   customer_user_id: string | null;
+  
+  item_payment_flow: string | null;
+  merchant_payment_status: string | null;
+  purchase_payment_status: string | null;
 };
+
 
 const STATUS_TRANSITIONS: Record<
   string,
@@ -113,8 +118,8 @@ export async function PATCH(request: Request) {
       await supabaseAdmin
         .from("orders")
         .select(
-          "id, booking_no, status, assigned_rider, payment_method, payment_status, customer_user_id"
-        )
+  "id, booking_no, status, assigned_rider, payment_method, payment_status, customer_user_id, item_payment_flow, merchant_payment_status,purchase_payment_status"
+)
         .eq("id", orderId)
         .maybeSingle<OrderRow>();
 
@@ -131,6 +136,35 @@ export async function PATCH(request: Request) {
         { status: 404 }
       );
     }
+
+    if (
+  requestedNextStatus === "In Transit" &&
+  order.item_payment_flow === "merchant_direct" &&
+  order.merchant_payment_status !== "Payment Confirmed"
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Merchant payment must be confirmed before starting delivery.",
+    },
+    { status: 409 }
+  );
+}
+
+if (
+  requestedNextStatus === "Completed" &&
+  order.item_payment_flow === "rider_advance_cod" &&
+  order.purchase_payment_status !== "Payment Received"
+) {
+  return NextResponse.json(
+    {
+      success: false,
+      error:
+        "COD payment must be confirmed as received before completing the order.",
+    },
+    { status: 409 }
+  );
+}
 
     const currentStatus = order.status || "Pending";
     const transition = STATUS_TRANSITIONS[currentStatus];
@@ -314,6 +348,7 @@ export async function PATCH(request: Request) {
         .eq("id", orderId)
         .eq("status", currentStatus)
         .eq("assigned_rider", authorization.userId)
+        
         .select(
           `
           id,

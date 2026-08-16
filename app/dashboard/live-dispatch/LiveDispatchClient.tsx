@@ -5,6 +5,18 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import type { AdminRiderMapItem } from "../AdminLiveMap";
+import {
+  ExternalLink,
+  MessageCircle,
+  Phone,
+  Copy,
+  MapPin,
+  Flag,
+  Navigation,
+  Map,
+  UserPlus,
+  Bike,
+} from "lucide-react";
 
 const AdminLiveMap = dynamic(() => import("../AdminLiveMap"), {
   ssr: false,
@@ -29,6 +41,7 @@ type Order = {
   total_amount?: number | string | null;
   assigned_rider?: string | null;
   created_at: string | null;
+  accepted_at: string | null;
 };
 
 type Rider = {
@@ -101,28 +114,69 @@ function formatWaiting(minutes: number) {
 }
 
 function urgency(minutes: number) {
-  if (minutes >= 5) return { card: "border-red-200 bg-red-50", dot: "bg-red-500", label: "text-red-700 bg-red-100" };
-  if (minutes >= 2) return { card: "border-amber-200 bg-amber-50", dot: "bg-amber-500", label: "text-amber-700 bg-amber-100" };
-  return { card: "border-slate-200 bg-white", dot: "bg-emerald-500", label: "text-emerald-700 bg-emerald-100" };
-}
+  if (minutes >= 10) {
+    return {
+      card: "border-red-500 bg-red-50",
+      dot: "bg-red-600",
+      label: "text-red-700 bg-red-100",
+      text: "CRITICAL",
+    };
+  }
 
+  if (minutes >= 5) {
+    return {
+      card: "border-orange-400 bg-orange-50",
+      dot: "bg-orange-500",
+      label: "text-orange-700 bg-orange-100",
+      text: "NEEDS ATTENTION",
+    };
+  }
+
+  return {
+    card: "border-emerald-200 bg-white",
+    dot: "bg-emerald-500",
+    label: "text-emerald-700 bg-emerald-100",
+    text: "FRESH",
+  };
+}
 function priorityFor(order: Order) {
   if (order.status !== "Pending") {
-    return { rank: 0, label: "Active", tone: "bg-blue-100 text-blue-700" };
+    return {
+      rank: 0,
+      label: "Active",
+      tone: "bg-blue-100 text-blue-700",
+      text: "ACTIVE",
+    };
   }
 
   const minutes = waitingMinutes(order.created_at);
   const isFood = (order.package_type || "").toLowerCase().includes("food");
 
   if (minutes >= 10 || (isFood && minutes >= 5)) {
-    return { rank: 3, label: "High", tone: "bg-red-600 text-white" };
+    return {
+      rank: 3,
+      label: "High",
+      tone: "bg-red-600 text-white",
+      text: "HIGH PRIORITY",
+    };
   }
-  if (minutes >= 5 || isFood) {
-    return { rank: 2, label: "Medium", tone: "bg-amber-100 text-amber-800" };
-  }
-  return { rank: 1, label: "Normal", tone: "bg-slate-100 text-slate-600" };
-}
 
+  if (minutes >= 5) {
+    return {
+      rank: 2,
+      label: "Medium",
+      tone: "bg-amber-100 text-amber-800",
+      text: "MEDIUM PRIORITY",
+    };
+  }
+
+  return {
+    rank: 1,
+    label: "Normal",
+    tone: "bg-slate-100 text-slate-600",
+    text: "NORMAL PRIORITY",
+  };
+}
 
 function activityPresentation(activity: Activity) {
   const action = activity.action.toLowerCase();
@@ -148,6 +202,63 @@ function statusTone(status: string | null) {
   if (status === "Cancelled") return "bg-red-100 text-red-700";
   return "bg-blue-100 text-blue-700";
 }
+type DispatchActionButtonProps = {
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  onClick?: () => void;
+  href?: string;
+  variant?: "primary" | "default" | "success" | "map";
+  disabled?: boolean;
+};
+
+function DispatchActionButton({
+  icon,
+  children,
+  onClick,
+  href,
+  variant = "default",
+  disabled = false,
+}: DispatchActionButtonProps) {
+  const base =
+    "inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-xs font-black shadow-sm transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:active:scale-100";
+
+  const variants = {
+    primary:
+      "border border-blue-600 bg-blue-600 text-white hover:bg-blue-700 hover:shadow-md",
+
+    default:
+      "border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700",
+
+    success:
+      "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100",
+
+    map:
+      "border border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 hover:shadow-md",
+  };
+
+  const className = `${base} ${variants[variant]}`;
+
+  if (href && !disabled) {
+    return (
+      <a href={href} className={className}>
+        {icon}
+        <span>{children}</span>
+      </a>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={className}
+    >
+      {icon}
+      <span>{children}</span>
+    </button>
+  );
+}
 
 export default function LiveDispatchClient() {
   const supabase = useMemo(() => createClient(), []);
@@ -157,16 +268,28 @@ export default function LiveDispatchClient() {
   const [liveRiders, setLiveRiders] = useState<AdminRiderMapItem[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [selectedBookingNo, setSelectedBookingNo] = useState<string | null>(null);
-  const [queueFilter, setQueueFilter] = useState<"all" | "pending" | "active">("all");
+  const [showLiveMap, setShowLiveMap] = useState(false);
+
+  const [queueFilter, setQueueFilter] = useState<
+    "all" | "high" | "medium" | "normal" | "active"
+  >("all");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [actionMessage, setActionMessage] = useState("");
+  const [newBookingToast, setNewBookingToast] = useState<Order | null>(null);
+  const [highlightedBookingId, setHighlightedBookingId] = useState<number | null>(null);
+  const newBookingTimerRef = useRef<number | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [eta, setEta] = useState<{ pickupSeconds: number | null; deliverySeconds: number | null }>({ pickupSeconds: null, deliverySeconds: null });
   const soundEnabledRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
+
+  const [showAssignPanel, setShowAssignPanel] = useState(false);
+
+  const [assigningRiderId, setAssigningRiderId] =
+    useState<Rider["id"] | null>(null);
 
   const showActionMessage = useCallback((message: string) => {
     setActionMessage(message);
@@ -178,6 +301,7 @@ export default function LiveDispatchClient() {
     const results = await Promise.allSettled(active.map(async (order) => {
       const response = await fetch(`/api/track?booking_no=${encodeURIComponent(order.booking_no || "")}`, { cache: "no-store" });
       const result = await response.json();
+
       if (!response.ok || !result.success || !result.order || !result.rider_location) return null;
       return {
         orderId: order.id,
@@ -215,9 +339,10 @@ export default function LiveDispatchClient() {
       const [ordersResult, ridersResult, activityResult] = await Promise.all([
         ordersResponse.json(), ridersResponse.json(), activityResponse.json(),
       ]);
+
       if (!ordersResponse.ok || !ordersResult.success) throw new Error(ordersResult.error || "Unable to load orders.");
       const nextOrders: Order[] = Array.isArray(ordersResult.data) ? ordersResult.data : [];
-      
+
       const nextRiders: Rider[] = Array.isArray(ridersResult.riders) ? ridersResult.riders : [];
       const nextActivities: Activity[] = Array.isArray(activityResult.logs) ? activityResult.logs : [];
       setOrders(nextOrders);
@@ -278,18 +403,97 @@ export default function LiveDispatchClient() {
       showActionMessage("Sound alerts turned off.");
       return;
     }
+
     soundEnabledRef.current = true;
     setSoundEnabled(true);
+
     await playAlert("test");
+
     showActionMessage("Sound alerts enabled. Test tone played.");
   }, [playAlert, showActionMessage]);
+
+
+  async function assignRider(orderId: number, riderId: string) {
+    try {
+      setAssigningRiderId(riderId);
+
+      const res = await fetch("/api/admin/assign-rider", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId,
+          riderId,
+        }),
+      });
+
+      const result = await res.json();
+
+      if (!res.ok) {
+        throw new Error(result.error || "Assignment failed");
+      }
+
+      setShowAssignPanel(false);
+
+      showActionMessage("✅ Rider assigned successfully");
+
+      await loadData();
+    } catch (err) {
+      console.error(err);
+
+      showActionMessage(
+        err instanceof Error
+          ? `❌ ${err.message}`
+          : "❌ Failed assigning rider"
+      );
+    } finally {
+      setAssigningRiderId(null);
+    }
+  }
+
+
+  const handleNewBooking = useCallback(
+    (order: Order) => {
+      setNewBookingToast(order);
+      setHighlightedBookingId(order.id);
+
+      setSelectedId(order.id);
+      setQueueFilter("all");
+      setSearch("");
+
+      if (newBookingTimerRef.current) {
+        window.clearTimeout(newBookingTimerRef.current);
+      }
+
+      newBookingTimerRef.current = window.setTimeout(() => {
+        setNewBookingToast(null);
+        setHighlightedBookingId(null);
+        newBookingTimerRef.current = null;
+      }, 7000);
+    },
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      if (newBookingTimerRef.current) {
+        window.clearTimeout(newBookingTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const channel = supabase.channel("v10-live-dispatch")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, (payload) => {
         const next = payload.new as { status?: string } | null;
         const old = payload.old as { status?: string } | null;
-        if (payload.eventType === "INSERT") playAlert("new");
+        if (payload.eventType === "INSERT") {
+          const insertedOrder = payload.new as Order;
+
+          void playAlert("new");
+          handleNewBooking(insertedOrder);
+        }
         if (next?.status === "Cancelled" && old?.status !== "Cancelled") playAlert("cancel");
         void loadData();
       })
@@ -298,11 +502,30 @@ export default function LiveDispatchClient() {
       .subscribe();
     const fallback = window.setInterval(() => void loadData(), 15000);
     return () => { window.clearInterval(fallback); supabase.removeChannel(channel); };
-  }, [loadData, playAlert, supabase]);
+  }, [handleNewBooking, loadData, playAlert, supabase]);
 
   const queue = useMemo(() => orders
     .filter((order) => order.status === "Pending" || activeStatuses.includes(order.status || ""))
-    .filter((order) => queueFilter === "all" || (queueFilter === "pending" ? order.status === "Pending" : activeStatuses.includes(order.status || "")))
+    .filter((order) => {
+      if (queueFilter === "all") {
+        return order.status === "Pending";
+      }
+
+      if (queueFilter === "active") {
+        return activeStatuses.includes(order.status || "");
+      }
+
+      if (order.status !== "Pending") return false;
+
+      const rank = priorityFor(order).rank;
+
+      if (queueFilter === "high") return rank === 3;
+      if (queueFilter === "medium") return rank === 2;
+      if (queueFilter === "normal") return rank === 1;
+
+      return true;
+    })
+
     .filter((order) => !search.trim() || [order.booking_no, order.sender_name, order.receiver_name, order.pickup_address, order.dropoff_address].some((value) => value?.toLowerCase().includes(search.toLowerCase())))
     .sort((a, b) => {
       if (a.status === "Pending" && b.status !== "Pending") return -1;
@@ -315,22 +538,80 @@ export default function LiveDispatchClient() {
       }
 
       return (
-  (parseOrderDate(a.created_at)?.getTime() ?? 0) -
-  (parseOrderDate(b.created_at)?.getTime() ?? 0)
-);
+        (parseOrderDate(a.created_at)?.getTime() ?? 0) -
+        (parseOrderDate(b.created_at)?.getTime() ?? 0)
+      );
     }), [orders, queueFilter, search]);
 
   const oldestPending = useMemo(() =>
     queue.filter((order) => order.status === "Pending")
       .sort((a, b) => waitingMinutes(b.created_at) - waitingMinutes(a.created_at))[0] || null,
-  [queue]);
+    [queue]);
+
+  const highPriorityOrders = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          order.status === "Pending" &&
+          priorityFor(order).rank === 3
+      ),
+    [orders]
+  );
+
+  const oldestHighPriority = useMemo(
+    () =>
+      [...highPriorityOrders].sort(
+        (a, b) =>
+          waitingMinutes(b.created_at) -
+          waitingMinutes(a.created_at)
+      )[0] || null,
+    [highPriorityOrders]
+  );
+
+  const priorityCounts = useMemo(() => {
+    const pendingOrders = orders.filter(
+      (order) => order.status === "Pending"
+    );
+
+    return {
+      high: pendingOrders.filter(
+        (order) => priorityFor(order).rank === 3
+      ).length,
+
+      medium: pendingOrders.filter(
+        (order) => priorityFor(order).rank === 2
+      ).length,
+
+      normal: pendingOrders.filter(
+        (order) => priorityFor(order).rank === 1
+      ).length,
+
+      active: orders.filter((order) =>
+        activeStatuses.includes(order.status || "")
+      ).length,
+    };
+  }, [orders]);
 
   const selected = orders.find((item) => item.id === selectedId) || null;
   const available = riders.filter((rider) => rider.is_active && rider.is_online && rider.active_deliveries === 0);
   const busy = riders.filter((rider) => rider.is_active && rider.is_online && rider.active_deliveries > 0);
   const offline = riders.filter((rider) => !rider.is_online || !rider.is_active);
-
+  const activeDeliveries = useMemo(
+    () =>
+      orders
+        .filter((order) =>
+          activeStatuses.includes(order.status || "")
+        )
+        .sort(
+          (a, b) =>
+            (parseOrderDate(b.created_at)?.getTime() ?? 0) -
+            (parseOrderDate(a.created_at)?.getTime() ?? 0)
+        ),
+    [orders]
+  );
   useEffect(() => { setSelectedBookingNo(selected?.booking_no || null); }, [selected]);
+
+
 
   const assignedRider = selected?.assigned_rider
     ? riders.find((rider) => rider.id === selected.assigned_rider) || null
@@ -382,7 +663,7 @@ export default function LiveDispatchClient() {
     ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(selected.pickup_address)}&destination=${encodeURIComponent(selected.dropoff_address)}`
     : "#";
 
-  return <div className="min-h-screen bg-slate-100 text-slate-900 xl:h-screen xl:overflow-hidden">
+  return <div className="min-h-screen bg-slate-100 text-slate-900 lg:h-screen lg:overflow-hidden">
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur xl:h-16">
       <div className="flex h-16 items-center gap-3 px-4 md:px-6">
         <Link href="/dashboard" className="grid h-9 w-9 place-items-center rounded-xl bg-blue-950 text-white transition hover:bg-blue-900" aria-label="Back to dashboard">←</Link>
@@ -400,11 +681,56 @@ export default function LiveDispatchClient() {
     </header>
 
     {actionMessage && <div className="fixed right-4 top-20 z-[1000] rounded-xl bg-slate-950 px-4 py-2 text-xs font-black text-white shadow-xl">{actionMessage}</div>}
+    {newBookingToast && (
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedId(newBookingToast.id);
+          setNewBookingToast(null);
+        }}
+        className="fixed right-4 top-20 z-[1100] w-[min(360px,calc(100vw-32px))] animate-pulse rounded-2xl border border-emerald-200 bg-white p-4 text-left shadow-2xl"
+      >
+        <div className="flex items-start gap-3">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-emerald-100 text-xl">
+            🔔
+          </div>
 
-    <main className="mx-auto max-w-[1900px] p-3 xl:h-[calc(100vh-64px)] xl:overflow-hidden">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-black uppercase tracking-wider text-emerald-600">
+                New booking received
+              </p>
+
+              <span className="rounded-full bg-emerald-100 px-2 py-1 text-[9px] font-black text-emerald-700">
+                NEW
+              </span>
+            </div>
+
+            <p className="mt-1 truncate text-sm font-black text-slate-950">
+              {newBookingToast.booking_no || `Order #${newBookingToast.id}`}
+            </p>
+
+            <p className="mt-1 truncate text-xs font-semibold text-slate-500">
+              {newBookingToast.pickup_address || "Pickup not set"}
+            </p>
+
+            <div className="mt-2 flex items-center justify-between">
+              <span className="text-[10px] font-bold text-slate-400">
+                Click to inspect
+              </span>
+
+              <span className="text-sm font-black text-blue-700">
+                {money(newBookingToast.total_amount || newBookingToast.price)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </button>
+    )}
+    <main className="mx-auto max-w-[1900px] p-3 lg:h-[calc(100vh-64px)] lg:overflow-hidden">
       {error && <div className="mb-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">{error}</div>}
 
-      <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4 xl:h-14">
+      <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:h-14">
         {[
           { label: "Waiting", value: orders.filter((item) => item.status === "Pending").length, tone: "text-amber-700" },
           { label: "Active", value: orders.filter((item) => activeStatuses.includes(item.status || "")).length, tone: "text-blue-700" },
@@ -416,8 +742,8 @@ export default function LiveDispatchClient() {
         </div>)}
       </div>
 
-      <div className="grid gap-2 xl:h-[calc(100%-64px)] xl:grid-cols-[300px_minmax(0,1fr)_300px]">
-        <section className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:min-h-0">
+      <div className="grid gap-2 lg:h-[calc(100%-64px)] lg:grid-cols-[250px_minmax(0,1fr)_280px] 2xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+        <section className="flex min-h-[520px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:min-h-0">
           <div className="shrink-0 border-b border-slate-100 p-3">
             <div className="flex items-center justify-between">
               <div>
@@ -427,9 +753,118 @@ export default function LiveDispatchClient() {
               <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-black">{queue.length}</span>
             </div>
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search booking or customer" className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold outline-none focus:border-blue-400" />
-            <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1">
-              {(["all", "pending", "active"] as const).map((item) => <button key={item} onClick={() => setQueueFilter(item)} className={`rounded-lg px-2 py-1.5 text-[10px] font-black capitalize ${queueFilter === item ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>{item}</button>)}
+           <div className="mt-2">
+              <div className="mt-2 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 sm:grid-cols-3 xl:grid-cols-2 2xl:grid-cols-3">
+                {[
+                  {
+                    key: "all",
+                    label: "All",
+                    count:
+                          priorityCounts.high +
+                          priorityCounts.medium +
+                          priorityCounts.normal,
+                  },
+                  {
+                    key: "high",
+                    label: "High",
+                    count: priorityCounts.high,
+                  },
+                  {
+                    key: "medium",
+                    label: "Medium",
+                    count: priorityCounts.medium,
+                  },
+                  {
+                    key: "normal",
+                    label: "Normal",
+                    count: priorityCounts.normal,
+                  },
+                  {
+                    key: "active",
+                    label: "Active",
+                    count: priorityCounts.active,
+                  },
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() =>
+                      setQueueFilter(
+                        item.key as
+                        | "all"
+                        | "high"
+                        | "medium"
+                        | "normal"
+                        | "active"
+                      )
+                    }
+                    className={`rounded-lg px-2 py-2 text-[10px] font-black transition ${queueFilter === item.key
+                      ? "bg-white text-blue-700 shadow-sm"
+                      : "text-slate-500 hover:bg-white/70"
+                      }`}
+                  >
+                    <span>{item.label}</span>
+
+                    <span
+                      className={`ml-1 rounded-full px-1.5 py-0.5 text-[8px] ${item.key === "high"
+                        ? "bg-red-100 text-red-700"
+                        : item.key === "medium"
+                          ? "bg-amber-100 text-amber-700"
+                          : item.key === "normal"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : item.key === "active"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-slate-200 text-slate-600"
+                        }`}
+                    >
+                      {item.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
+
+            {highPriorityOrders.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!oldestHighPriority) return;
+
+                  setSelectedId(oldestHighPriority.id);
+                  setQueueFilter("high");
+                  setSearch("");
+                }}
+               className="mt-2 flex w-full items-center justify-between gap-2 rounded-xl border border-red-300 bg-red-600 px-2.5 py-1.5 text-left text-white shadow-sm transition hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-300"
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="animate-pulse text-sm">🚨</span>
+
+                  <div className="min-w-0">
+                   <p className="text-[9px] font-black uppercase tracking-wider">
+                      {highPriorityOrders.length} high priority{" "}
+                      {highPriorityOrders.length === 1 ? "order needs" : "orders need"} attention
+                    </p>
+
+                    {oldestHighPriority && (
+                      <p className="truncate text-[9px] font-bold text-red-100">
+                        Oldest:{" "}
+                        {formatWaiting(
+                          waitingMinutes(oldestHighPriority.created_at)
+                        )}{" "}
+                        •{" "}
+                        {oldestHighPriority.booking_no ||
+                          `Order #${oldestHighPriority.id}`}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <span className="shrink-0 rounded-full bg-white px-2 py-1 text-[9px] font-black text-red-700">
+                  SLA BREACH
+                </span>
+              </button>
+            )}
+
             {oldestPending && <div className="mt-2 flex items-center justify-between rounded-lg border border-red-100 bg-red-50 px-2.5 py-1.5">
               <span className="text-[9px] font-black uppercase tracking-wider text-red-600">Oldest waiting</span>
               <span className="text-[10px] font-black text-red-700">{formatWaiting(waitingMinutes(oldestPending.created_at))} • {oldestPending.booking_no || `#${oldestPending.id}`}</span>
@@ -441,7 +876,23 @@ export default function LiveDispatchClient() {
               const minutes = waitingMinutes(order.created_at);
               const colors = urgency(minutes);
               const priority = priorityFor(order);
-              return <button key={order.id} onClick={() => setSelectedId(order.id)} className={`w-full rounded-xl border px-2.5 py-1.5 text-left transition ${colors.card} ${selectedId === order.id ? "ring-2 ring-blue-500" : "hover:border-blue-300"}`}>
+              return (
+  <button
+    key={order.id}
+    type="button"
+    onClick={() => setSelectedId(order.id)}
+    className={`w-full rounded-xl border px-2.5 py-1.5 text-left transition ${
+      colors.card
+    } ${
+      selectedId === order.id
+        ? "ring-2 ring-blue-500"
+        : "hover:border-blue-300"
+    } ${
+      highlightedBookingId === order.id
+        ? "animate-pulse border-emerald-400 bg-emerald-50 ring-2 ring-emerald-400"
+        : ""
+    }`}
+  >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className={`h-2 w-2 shrink-0 rounded-full ${colors.dot}`} />
@@ -457,72 +908,333 @@ export default function LiveDispatchClient() {
                   <p className="shrink-0 text-xs font-black">{money(order.total_amount || order.price)}</p>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1">
-                  <span className={`inline-flex rounded-full px-2 py-0.5 text-[8px] font-black ${order.status === "Pending" ? priority.tone : colors.label}`}>{order.status === "Pending" ? `${priority.label} priority` : "In progress"}</span>
-                  {order.status === "Pending" && <span className={`inline-flex rounded-full px-2 py-0.5 text-[8px] font-black ${colors.label}`}>{formatWaiting(minutes)} waiting</span>}
+                  {order.status === "Pending" && (
+                    <>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[8px] font-black ${priority.tone}`}
+                      >
+                        {priority.text}
+                      </span>
+
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-[8px] font-black ${colors.label}`}
+                      >
+                        ⏱ {formatWaiting(minutes)} waiting
+                      </span>
+                    </>
+                  )}
                 </div>
-              </button>;
+             </button>
+);
             })}
             {!loading && queue.length === 0 && <div className="p-8 text-center"><p className="text-3xl">✅</p><p className="mt-2 font-black">Queue is clear</p></div>}
           </div>
         </section>
 
-        <section className="grid min-h-[620px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_minmax(220px,42%)]">
-          <div className="min-h-0 overflow-y-auto border-b border-slate-100 p-3">
+       <section className="flex min-h-[620px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:min-h-0">
+          <div className="min-h-0 overflow-y-auto border-b border-slate-100 p-2.5">
             {!selected ? <div className="grid h-full min-h-[240px] place-items-center text-center"><div><p className="text-4xl">📦</p><p className="mt-2 font-black">Select a booking</p><p className="text-sm font-semibold text-slate-500">Choose an order from the queue to inspect it.</p></div></div> : <div>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2"><h2 className="text-lg font-black">{selected.booking_no || `Order #${selected.id}`}</h2><span className={`rounded-full px-2 py-1 text-[9px] font-black ${statusTone(selected.status)}`}>{selected.status}</span></div>
                   <p className="mt-0.5 text-[11px] font-semibold text-slate-400">Created {parseOrderDate(selected.created_at) ? parseOrderDate(selected.created_at)!.toLocaleString("en-PH")
-  : "—"} </p>
-                </div> 
+                    : "—"} </p>
+                </div>
                 <div className="text-right"> <p className="text-xl font-black text-blue-700">{money(selected.total_amount || selected.price)}</p><p className="text-[10px] font-bold text-slate-400">{selected.payment_method || "Payment not set"}</p></div>
               </div>
 
-              <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Customer</p><div className="mt-1 flex items-center justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-black">{selected.sender_name || "—"}</p><p className="truncate text-[11px] font-bold text-blue-700">{selected.sender_phone || "No phone"}</p></div>{selected.sender_phone && <a href={`tel:${selected.sender_phone}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-black">Call</a>}</div></div>
-                <div className="rounded-xl bg-slate-50 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Receiver</p><div className="mt-1 flex items-center justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-black">{selected.receiver_name || "—"}</p><p className="truncate text-[11px] font-bold text-blue-700">{selected.receiver_phone || "No phone"}</p></div>{selected.receiver_phone && <a href={`tel:${selected.receiver_phone}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-black">Call</a>}</div></div>
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-emerald-600">Pickup</p><p className="mt-1 line-clamp-2 text-xs font-bold">{selected.pickup_address || "—"}</p></div>
-                <div className="rounded-xl border border-red-100 bg-red-50 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-red-600">Drop-off</p><p className="mt-1 line-clamp-2 text-xs font-bold">{selected.dropoff_address || "—"}</p></div>
+              <div className="mt-2 grid gap-1.5 md:grid-cols-2">
+               <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Customer</p><div className="mt-1 flex items-center justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-black">{selected.sender_name || "—"}</p><p className="truncate text-[11px] font-bold text-blue-700">{selected.sender_phone || "No phone"}</p></div>{selected.sender_phone && <a href={`tel:${selected.sender_phone}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-black">Call</a>}</div></div>
+               <div className="rounded-xl bg-slate-50 p-2"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Receiver</p><div className="mt-1 flex items-center justify-between gap-2"><div className="min-w-0"><p className="truncate text-sm font-black">{selected.receiver_name || "—"}</p><p className="truncate text-[11px] font-bold text-blue-700">{selected.receiver_phone || "No phone"}</p></div>{selected.receiver_phone && <a href={`tel:${selected.receiver_phone}`} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-black">Call</a>}</div></div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2"><p className="text-[9px] font-black uppercase tracking-wider text-emerald-600">Pickup</p><p className="mt-1 line-clamp-2 text-xs font-bold">{selected.pickup_address || "—"}</p></div>
+               <div className="rounded-xl border border-red-100 bg-red-50 p-2"><p className="text-[9px] font-black uppercase tracking-wider text-red-600">Drop-off</p><p className="mt-1 line-clamp-2 text-xs font-bold">{selected.dropoff_address || "—"}</p></div>
               </div>
 
-              <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 p-2.5"><p className="text-[9px] font-black uppercase text-slate-400">Package</p><p className="mt-1 truncate text-xs font-black">{selected.package_type || "Not set"}</p></div>
-                <div className="rounded-xl border border-slate-200 p-2.5"><p className="text-[9px] font-black uppercase text-slate-400">Payment flow</p><p className="mt-1 truncate text-xs font-black">{selected.item_payment_flow || selected.payment_method || "Not set"}</p></div>
-                <div className="rounded-xl border border-slate-200 p-2.5"><p className="text-[9px] font-black uppercase text-slate-400">Assigned rider</p><p className="mt-1 truncate text-xs font-black">{riders.find((rider) => rider.id === selected.assigned_rider)?.full_name || (selected.assigned_rider ? "Assigned rider" : "Waiting for rider")}</p></div>
+              <div className="mt-1.5 grid gap-1.5 sm:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 p-2"><p className="text-[9px] font-black uppercase text-slate-400">Package</p><p className="mt-1 truncate text-xs font-black">{selected.package_type || "Not set"}</p></div>
+              <div className="rounded-xl border border-slate-200 p-2"><p className="text-[9px] font-black uppercase text-slate-400">Payment flow</p><p className="mt-1 truncate text-xs font-black">{selected.item_payment_flow || selected.payment_method || "Not set"}</p></div>
+              <div className="rounded-xl border border-slate-200 p-2"><p className="text-[9px] font-black uppercase text-slate-400">Assigned rider</p><p className="mt-1 truncate text-xs font-black">{riders.find((rider) => rider.id === selected.assigned_rider)?.full_name || (selected.assigned_rider ? "Assigned rider" : "Waiting for rider")}</p></div>
               </div>
 
               {selectedLiveRider && <div className="mt-2 grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-blue-100 bg-blue-50 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-blue-600">ETA to pickup</p><p className="mt-1 text-sm font-black text-blue-950">{formatEta(eta.pickupSeconds)}</p></div>
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-emerald-600">Pickup to drop-off</p><p className="mt-1 text-sm font-black text-emerald-950">{formatEta(eta.deliverySeconds)}</p></div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-2"><p className="text-[9px] font-black uppercase tracking-wider text-emerald-600">Pickup to drop-off</p><p className="mt-1 text-sm font-black text-emerald-950">{formatEta(eta.deliverySeconds)}</p></div>
               </div>}
 
               {selected.notes && <div className="mt-2 rounded-xl border border-slate-200 p-2.5"><p className="text-[9px] font-black uppercase tracking-wider text-slate-400">Notes</p><p className="mt-1 line-clamp-2 text-xs font-semibold">{selected.notes}</p></div>}
 
               <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
-                <p className="mb-2 text-[9px] font-black uppercase tracking-[.16em] text-slate-400">Dispatcher actions</p>
-                <div className="flex flex-wrap gap-1.5">
-                  <Link href={`/dashboard?view=orders&search=${encodeURIComponent(selected.booking_no || String(selected.id))}`} className="rounded-lg bg-blue-700 px-2.5 py-2 text-[10px] font-black text-white">▣ Open order</Link>
-                  <Link href={`/track?booking=${encodeURIComponent(selected.booking_no || "")}`} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-black">💬 Tracking & chat</Link>
-                  {assignedRider?.phone && <a href={`tel:${assignedRider.phone}`} className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-2 text-[10px] font-black text-emerald-700">☎ Call rider</a>}
-                  {selected.sender_phone && <a href={`tel:${selected.sender_phone}`} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-black">☎ Call customer</a>}
-                  <button type="button" onClick={() => void copyText("Pickup address", selected.pickup_address)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-black">⧉ Copy pickup</button>
-                  <button type="button" onClick={() => void copyText("Drop-off address", selected.dropoff_address)} className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-black">⧉ Copy drop-off</button>
-                  {selected.pickup_address && <a href={mapsUrl(selected.pickup_address)} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-black">📍 Pickup map</a>}
-                  {selected.dropoff_address && <a href={mapsUrl(selected.dropoff_address)} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-[10px] font-black">🏁 Drop-off map</a>}
-                  {selected.pickup_address && selected.dropoff_address && <a href={routeUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-2 text-[10px] font-black text-blue-700">🗺 Open route</a>}
+                <p className="mb-2 text-[9px] font-black uppercase tracking-[.16em] text-slate-400">
+                  
+                  Dispatcher actions</p>
+               <div className="flex flex-wrap gap-2">
+
+  <Link
+    href={`/dashboard?view=orders&search=${encodeURIComponent(
+      selected.booking_no || String(selected.id)
+    )}`}
+    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-3 py-2 text-[10px] font-black text-white shadow-sm transition hover:bg-blue-700 hover:shadow-md"
+  >
+    <ExternalLink size={14} strokeWidth={2.5} />
+    <span>Open order</span>
+  </Link>
+
+  <Link
+    href={`/track?booking=${encodeURIComponent(selected.booking_no || "")}`}
+    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+  >
+    <MessageCircle size={14} strokeWidth={2.5} />
+    <span>Tracking & chat</span>
+  </Link>
+
+  {assignedRider?.phone && (
+    <a
+      href={`tel:${assignedRider.phone}`}
+      className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[10px] font-black text-emerald-700 shadow-sm transition hover:bg-emerald-100"
+    >
+      <Phone size={14} strokeWidth={2.5} />
+      <span>Call rider</span>
+    </a>
+  )}
+
+  {selected.sender_phone && (
+    <a
+      href={`tel:${selected.sender_phone}`}
+      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+    >
+      <Phone size={14} strokeWidth={2.5} />
+      <span>Call customer</span>
+    </a>
+  )}
+
+  <button
+    type="button"
+    onClick={() => void copyText("Pickup address", selected.pickup_address)}
+    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+  >
+    <Copy size={14} strokeWidth={2.5} />
+    <span>Copy pickup</span>
+  </button>
+
+  <button
+    type="button"
+    onClick={() => void copyText("Drop-off address", selected.dropoff_address)}
+    className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+  >
+    <Copy size={14} strokeWidth={2.5} />
+    <span>Copy drop-off</span>
+  </button>
+
+  {selected.pickup_address && (
+    <a
+      href={mapsUrl(selected.pickup_address)}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700"
+    >
+      <MapPin size={14} strokeWidth={2.5} />
+      <span>Pickup map</span>
+    </a>
+  )}
+
+  {selected.dropoff_address && (
+    <a
+      href={mapsUrl(selected.dropoff_address)}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+    >
+      <Flag size={14} strokeWidth={2.5} />
+      <span>Drop-off map</span>
+    </a>
+  )}
+
+  {selected.pickup_address && selected.dropoff_address && (
+    <a
+      href={routeUrl}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[10px] font-black text-blue-700 shadow-sm transition hover:bg-blue-100"
+    >
+      <Navigation size={14} strokeWidth={2.5} />
+      <span>Open route</span>
+    </a>
+  )}
+
+  {selected?.status === "Pending" && (
+    <button
+      type="button"
+      onClick={() => setShowAssignPanel((current) => !current)}
+      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-black text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md"
+    >
+      <Bike size={14} strokeWidth={2.5} />
+      <span>Assign rider</span>
+    </button>
+  )}
+
+  <button
+    type="button"
+    onClick={() => setShowLiveMap(true)}
+    className="inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-[10px] font-black text-indigo-700 shadow-sm transition hover:border-indigo-300 hover:bg-indigo-100"
+  >
+    <Map size={14} strokeWidth={2.5} />
+    <span>Open live map</span>
+  </button>
+
+                  {selected?.status === "Pending" && showAssignPanel && (
+                    <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                            Assign rider
+                          </p>
+
+                          <p className="text-[9px] font-semibold text-slate-500">
+                            {available.length} available
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowAssignPanel(false)}
+                          className="rounded-lg bg-white px-2 py-1 text-[9px] font-black text-slate-500"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {available.length === 0 ? (
+                        <div className="rounded-lg bg-white p-3 text-center text-[10px] font-bold text-slate-500">
+                          No available riders right now.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {available.map((rider) => (
+                            <button
+                              key={rider.id}
+                              type="button"
+                              disabled={assigningRiderId !== null}
+                              onClick={() => {
+                                if (
+                                  confirm(
+                                    `Assign ${rider.full_name || "Rider"} to ${selected.booking_no || `Order #${selected.id}`
+                                    }?`
+                                  )
+                                ) {
+                                  void assignRider(selected.id, rider.id);
+                                }
+                              }}
+                              className="flex w-full items-center justify-between rounded-xl border border-emerald-100 bg-white px-3 py-2 text-left transition hover:border-emerald-400 hover:bg-emerald-50 disabled:opacity-50"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+
+                                <div>
+                                  <p className="text-[11px] font-black text-slate-900">
+                                    {rider.full_name || "Rider"}
+                                  </p>
+
+                                  <p className="text-[9px] font-semibold text-slate-400">
+                                    {rider.vehicle_type || "Motorcycle"}
+                                    {rider.plate_number
+                                      ? ` • ${rider.plate_number}`
+                                      : ""}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <span className="rounded-full bg-emerald-100 px-2 py-1 text-[8px] font-black text-emerald-700">
+                                {assigningRiderId === rider.id ? "ASSIGNING..." : "READY"}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                 </div>
               </div>
             </div>}
           </div>
-
-          <div className="relative min-h-[220px] overflow-hidden bg-slate-100">
-            <div className="absolute right-2 top-2 z-[500] rounded-lg bg-white/95 px-2 py-1 text-[9px] font-black text-slate-600 shadow">Mini live map</div>
-            <div className="absolute bottom-2 left-2 z-[500] flex gap-2 rounded-lg bg-white/95 px-2 py-1 text-[9px] font-black text-slate-600 shadow"><span>🏍 Rider</span><span>📦 Pickup</span><span>🏁 Drop-off</span></div>
-            {liveRiders.length > 0 ? <AdminLiveMap riders={liveRiders} selectedBookingNo={selectedBookingNo} onSelectBooking={(bookingNo) => { setSelectedBookingNo(bookingNo); const order = orders.find((item) => item.booking_no === bookingNo); if (order) setSelectedId(order.id); }} /> : <div className="grid h-full min-h-[220px] place-items-center text-center"><div><p className="text-3xl">🗺️</p><p className="mt-1 text-sm font-black">Waiting for rider GPS</p><p className="text-xs font-semibold text-slate-500">Location appears when an active rider shares GPS.</p></div></div>}
-          </div>
+         
         </section>
 
-        <aside className="grid min-h-[620px] gap-2 xl:min-h-0 xl:grid-rows-[minmax(0,1fr)_190px]">
+        <aside className="grid min-h-[620px] gap-2 lg:min-h-0 xl:grid-rows-[220px_minmax(0,1fr)_190px]">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-blue-200 bg-white p-3 shadow-sm">
+  <div className="flex shrink-0 items-center justify-between">
+    <div>
+      <p className="text-[9px] font-black uppercase tracking-[.18em] text-blue-600">
+        Operations
+      </p>
+      <h2 className="text-sm font-black">
+        Active deliveries
+      </h2>
+    </div>
+
+    <span className="rounded-full bg-blue-100 px-2 py-1 text-[10px] font-black text-blue-700">
+      {activeDeliveries.length}
+    </span>
+  </div>
+
+  <div className="mt-2 min-h-0 flex-1 space-y-1.5 overflow-y-auto">
+    {activeDeliveries.length === 0 ? (
+      <div className="grid h-full place-items-center rounded-xl bg-slate-50 p-4 text-center">
+        <div>
+          <p className="text-xl">✅</p>
+          <p className="mt-1 text-[10px] font-black text-slate-500">
+            No active deliveries
+          </p>
+        </div>
+      </div>
+    ) : (
+      activeDeliveries.map((order) => {
+        const rider = riders.find(
+          (item) => item.id === order.assigned_rider
+        );
+
+        const isSelected = selectedId === order.id;
+
+        return (
+          <button
+            key={order.id}
+            type="button"
+            onClick={() => {
+              setSelectedId(order.id);
+              setSelectedBookingNo(order.booking_no || null);
+            }}
+            className={`w-full rounded-xl border p-2 text-left transition ${
+              isSelected
+                ? "border-blue-400 bg-blue-50 ring-1 ring-blue-300"
+                : "border-slate-100 bg-white hover:border-blue-300 hover:bg-blue-50/40"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-[11px] font-black text-slate-900">
+                  {order.booking_no || `Order #${order.id}`}
+                </p>
+
+                <p className="truncate text-[9px] font-bold text-slate-500">
+                  🏍 {rider?.full_name || "Assigned rider"}
+                </p>
+              </div>
+
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-[8px] font-black ${statusTone(order.status)}`}>
+                {order.status || "Active"}
+              </span>
+            </div>
+
+            <p className="mt-1 truncate text-[9px] font-semibold text-slate-400">
+              {order.pickup_address || "Pickup"} →{" "}
+              {order.dropoff_address || "Drop-off"}
+            </p>
+          </button>
+        );
+      })
+    )}
+  </div>
+</section>
           <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
             <div className="flex shrink-0 items-center justify-between"><div><p className="text-[9px] font-black uppercase tracking-[.18em] text-emerald-600">Fleet</p><h2 className="text-sm font-black">Rider availability</h2></div><Link href="/dashboard/riders" className="text-[10px] font-black text-blue-700">Manage</Link></div>
             <div className="mt-2 grid shrink-0 grid-cols-3 gap-1.5 text-center">{[{ label: "Available", value: available.length, tone: "text-emerald-700" }, { label: "Busy", value: busy.length, tone: "text-amber-700" }, { label: "Offline", value: offline.length, tone: "text-slate-500" }].map((item) => <div key={item.label} className="rounded-xl bg-slate-50 p-2"><p className={`text-lg font-black ${item.tone}`}>{item.value}</p><p className="text-[8px] font-black uppercase text-slate-400">{item.label}</p></div>)}</div>
@@ -547,6 +1259,85 @@ export default function LiveDispatchClient() {
           </section>
         </aside>
       </div>
+
+     {showLiveMap && (
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/60 p-4"
+    onClick={() => setShowLiveMap(false)}
+  >
+    <div
+      className="flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-3">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[.18em] text-blue-600">
+            Live Dispatch
+          </p>
+
+          <h2 className="text-lg font-black text-slate-950">
+            Live Map
+          </h2>
+
+          {selected && (
+            <p className="text-xs font-semibold text-slate-500">
+              {selected.booking_no || `Order #${selected.id}`}
+            </p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowLiveMap(false)}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-black text-slate-700 transition hover:bg-slate-100"
+        >
+          ✕ Close
+        </button>
+      </div>
+
+      <div className="relative min-h-0 flex-1 bg-slate-100">
+        <div className="absolute bottom-3 left-3 z-[500] flex gap-3 rounded-xl bg-white/95 px-3 py-2 text-[10px] font-black text-slate-600 shadow">
+          <span>🏍 Rider</span>
+          <span>📦 Pickup</span>
+          <span>🏁 Drop-off</span>
+        </div>
+
+        {liveRiders.length > 0 ? (
+          <AdminLiveMap
+            riders={liveRiders}
+            selectedBookingNo={selectedBookingNo}
+            onSelectBooking={(bookingNo) => {
+              setSelectedBookingNo(bookingNo);
+
+              const order = orders.find(
+                (item) => item.booking_no === bookingNo
+              );
+
+              if (order) {
+                setSelectedId(order.id);
+              }
+            }}
+          />
+        ) : (
+          <div className="grid h-full place-items-center text-center">
+            <div>
+              <p className="text-5xl">🗺️</p>
+
+              <p className="mt-3 text-lg font-black text-slate-900">
+                Waiting for rider GPS
+              </p>
+
+              <p className="mt-1 text-sm font-semibold text-slate-500">
+                Location appears when an active rider shares GPS.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
     </main>
   </div>;
 }

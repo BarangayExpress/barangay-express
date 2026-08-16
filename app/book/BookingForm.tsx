@@ -386,6 +386,17 @@ export default function BookingForm({
 
     const deliveryFee = Number(form.delivery_fee);
     const orderAmount = Number(form.order_amount || 0);
+    
+    if (
+  form.item_payment_flow === "rider_advance_cod" &&
+  (!Number.isFinite(orderAmount) || orderAmount <= 0)
+) {
+  setErrorMessage(
+    "Estimated item amount is required for Rider Advance / COD."
+  );
+  return;
+}
+
     if (!Number.isFinite(deliveryFee) || deliveryFee <= 0) {
   setErrorMessage("Maglagay ng valid na delivery fee.");
   return;
@@ -1080,11 +1091,21 @@ export default function BookingForm({
 
   <label className="block">
     <span className="mb-2 block text-sm font-bold text-slate-700">
-      Estimated item cost
-      <span className="ml-1 font-semibold text-slate-400">
-        (optional)
-      </span>
-    </span>
+  Estimated item cost
+  <span
+    className={`ml-1 font-semibold ${
+      form.item_payment_flow === "rider_advance_cod"
+        ? "text-red-500"
+        : "text-slate-400"
+    }`}
+  >
+    {form.item_payment_flow === "rider_advance_cod"
+      ? "(required)"
+      : form.item_payment_flow === "delivery_only"
+        ? "(not required)"
+        : "(optional)"}
+  </span>
+</span>
 
     <div className="flex overflow-hidden rounded-2xl border border-slate-200 bg-white transition focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100">
       <span className="flex items-center bg-amber-50 px-5 text-xl font-extrabold text-amber-700">
@@ -1094,6 +1115,7 @@ export default function BookingForm({
       <input
         type="number"
         disabled={form.item_payment_flow === "delivery_only"}
+        required={form.item_payment_flow === "rider_advance_cod"}
         name="order_amount"
         value={form.order_amount}
         onChange={updateOrderAmount}
@@ -1107,9 +1129,12 @@ export default function BookingForm({
     </div>
 
     <p className="mt-2 text-sm leading-6 text-slate-500">
-      Halimbawa: presyo ng pagkain o item na bibilhin ng rider.
-      Ilagay ang ₱0 kung delivery lamang.
-    </p>
+  {form.item_payment_flow === "rider_advance_cod"
+    ? "Ilagay ang tantyang presyo ng item. Ang rider ang mag-aadvance muna at ang actual cost ay ibabase sa resibo."
+    : form.item_payment_flow === "delivery_only"
+      ? "Hindi kailangan ang item cost para sa delivery-only booking."
+      : "Ilagay ang tantyang presyo ng pagkain o item."}
+</p>
   </label>
 </div>
 

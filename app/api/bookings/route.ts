@@ -228,6 +228,15 @@ function validateBookingInput(
           : "Invalid order amount.",
     };
   }
+if (
+  body.item_payment_flow === "rider_advance_cod" &&
+  orderAmount <= 0
+) {
+  return {
+    success: false,
+    error: "Estimated item amount is required for Rider Advance / COD.",
+  };
+}
 
   return {
     success: true,

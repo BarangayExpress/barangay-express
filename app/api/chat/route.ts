@@ -195,13 +195,60 @@ export async function GET(request: NextRequest) {
 
     const { data: messages, error: messagesError } = await supabase
       .from("booking_messages")
-      .select("id, sender_user_id, sender_role, message, read_at, created_at")
+      .select(`
+  id,
+  sender_user_id,
+  sender_role,
+  message,
+  message_type,
+  attachment_path,
+  attachment_name,
+  attachment_mime_type,
+  read_at,
+  created_at
+`)
       .eq("order_id", order.id)
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(200);
 
     if (messagesError) throw new Error(messagesError.message);
+    
+    const messagesWithAttachments = await Promise.all(
+  (messages || []).map(async (message) => {
+    if (
+      message.message_type !== "image" ||
+      !message.attachment_path
+    ) {
+      return {
+        ...message,
+        attachment_url: null,
+      };
+    }
+
+    const { data: signedData, error: signedError } =
+      await supabase.storage
+        .from("Booking Chat")
+        .createSignedUrl(message.attachment_path, 60 * 60);
+
+    if (signedError) {
+      console.error(
+        "Unable to create chat attachment signed URL:",
+        signedError
+      );
+
+      return {
+        ...message,
+        attachment_url: null,
+      };
+    }
+
+    return {
+      ...message,
+      attachment_url: signedData.signedUrl,
+    };
+  })
+);
 
     return NextResponse.json({
       success: true,
@@ -211,7 +258,7 @@ export async function GET(request: NextRequest) {
       read_only: readOnly,
       unread_count: count || 0,
       contacts,
-      messages: messages || [],
+      messages: messagesWithAttachments,
     });
   } catch (error) {
     console.error("Chat GET error:", error);
@@ -269,7 +316,18 @@ export async function POST(request: NextRequest) {
         sender_role: role,
         message,
       })
-      .select("id, sender_user_id, sender_role, message, read_at, created_at")
+      .select(`
+  id,
+  sender_user_id,
+  sender_role,
+  message,
+  message_type,
+  attachment_path,
+  attachment_name,
+  attachment_mime_type,
+  read_at,
+  created_at
+`)
       .single();
 
     if (error) throw new Error(error.message);

@@ -64,7 +64,12 @@ type Order = {
   cancelled_by: string | null;
   cancelled_at: string | null;
   commission_amount?: number;
-};
+  merchant_payment_status: string | null;
+  merchant_qr_sent_at: string | null;
+  merchant_payment_proof_at: string | null;
+  merchant_payment_confirmed_at: string | null;
+  merchant_payment_confirmed_by: string | null;
+  };
 
 const ACTIVE_STATUSES = [
   "Accepted",
@@ -263,12 +268,12 @@ export default function RiderDashboardPage() {
         const { data: orderRows, error: ordersError } = await supabase
           .from("orders")
           .select(
-            "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, item_payment_flow, estimated_item_amount, actual_item_amount, purchase_payment_status, rider_advance_amount, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at, cancellation_reason, cancelled_by, cancelled_at"
-          )
-          .or(
-            `and(status.eq.Pending,assigned_rider.is.null),assigned_rider.eq.${currentUser.id}`
-          )
-          .order("created_at", { ascending: false });
+  "id, booking_no, sender_name, sender_phone, pickup_address, receiver_name, receiver_phone, dropoff_address, package_type, notes, payment_method, payment_status, item_payment_flow, estimated_item_amount, actual_item_amount, purchase_payment_status, rider_advance_amount, order_amount, total_amount, status, price, created_at, assigned_rider, accepted_at, heading_to_pickup_at, picked_up_at, in_transit_at, delivered_at, completed_at, pickup_latitude, pickup_longitude, dropoff_latitude, dropoff_longitude, proof_photo_url, received_by, receiver_signature_url, proof_submitted_at, merchant_payment_status, merchant_qr_sent_at, merchant_payment_proof_at, merchant_payment_confirmed_at, merchant_payment_confirmed_by, cancellation_reason, cancelled_by, cancelled_at"
+)
+.or(
+  `and(status.eq.Pending,assigned_rider.is.null),assigned_rider.eq.${currentUser.id}`
+)
+.order("created_at", { ascending: false });
 
         if (ordersError) {
           throw new Error(ordersError.message);
@@ -474,6 +479,46 @@ export default function RiderDashboardPage() {
       setUpdatingId(null);
     }
   }
+
+  async function confirmMerchantPayment(order: Order) {
+  if (updatingId === order.id) return;
+
+  const confirmed = window.confirm(
+    "Confirm that the merchant received the customer's payment?"
+  );
+
+  if (!confirmed) return;
+
+  setUpdatingId(order.id);
+
+  try {
+    const response = await fetch(
+      `/api/rider/orders/${order.id}/confirm-merchant-payment`,
+      {
+        method: "POST",
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok || !result.success) {
+      throw new Error(
+        result.error || "Unable to confirm merchant payment."
+      );
+    }
+
+    await loadDashboard(false);
+  } catch (error) {
+    alert(
+      error instanceof Error
+        ? error.message
+        : "Unable to confirm merchant payment."
+    );
+  } finally {
+    setUpdatingId(null);
+  }
+}
+
   function playBookingAlert() {
     try {
       const AudioContextClass = window.AudioContext ||
@@ -855,17 +900,33 @@ export default function RiderDashboardPage() {
               </p>
             </div>
           ) : (
+
             displayedOrders.map((order) => {
               const status = order.status || "Pending";
               const action = WORKFLOW[status];
+
               const gcashLocked =status === "Pending" &&
                     order.payment_method === "GCash" &&
                     order.payment_status !== "Paid";
+
+              const bookingLocked =
+                    status === "Pending" && !canAcceptOrder;
+
               const showPickupMap = [
                 "Pending",
                 "Accepted",
                 "Heading to Pickup",
               ].includes(status);
+
+              const merchantPaymentLocked =
+                    order.item_payment_flow === "merchant_direct" &&
+                    status === "Picked Up" &&
+                    order.merchant_payment_status !== "Payment Confirmed";
+
+              const riderAdvancePaymentLocked =
+                    order.item_payment_flow === "rider_advance_cod" &&
+                    status === "Delivered" &&
+                    order.purchase_payment_status !== "Payment Received";
 
               return (
                 <article
@@ -913,6 +974,24 @@ export default function RiderDashboardPage() {
                       </p>
                     </div>
                   )}
+
+                  {bookingLocked ? (
+  <div className="border-t border-amber-200 bg-amber-50 p-6">
+    <div className="rounded-2xl border border-amber-300 bg-white p-6 text-center">
+      <div className="text-3xl">🔒</div>
+
+      <h3 className="mt-3 text-lg font-black text-slate-950">
+        Booking details locked
+      </h3>
+
+      <p className="mx-auto mt-2 max-w-lg text-sm font-semibold leading-6 text-slate-600">
+        Complete your current delivery first to unlock the pickup,
+        drop-off, customer details, and navigation.
+      </p>
+    </div>
+  </div>
+) : (
+  <>
 
                   <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-2">
                     <div className="rounded-2xl bg-sky-50 p-5">
@@ -974,6 +1053,99 @@ export default function RiderDashboardPage() {
                       </p>
                     </div>
                   </div>
+                    </>
+)}
+
+              {order.item_payment_flow === "merchant_direct" &&
+  status !== "Cancelled" && (
+    <div className="border-t border-blue-200 bg-gradient-to-r from-blue-50 via-white to-indigo-50 p-5 sm:p-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-xl text-white shadow-sm">
+            🏪
+          </div>
+
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="font-black text-slate-950">
+                Merchant Direct Payment
+              </p>
+
+              <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wide text-blue-700">
+                Direct to Merchant
+              </span>
+            </div>
+
+            <p className="mt-1 max-w-2xl text-sm font-semibold text-slate-600">
+              I-send ang merchant QR sa customer gamit ang Booking Chat.
+              Magbabayad ang customer diretso sa merchant at magsesend ng
+              payment proof.
+            </p>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm">
+                1. Send Merchant QR
+              </span>
+
+              <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm">
+                2. Customer Pays
+              </span>
+
+              <span className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 shadow-sm">
+                3. Verify Proof
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0">
+  {order.merchant_payment_status === "Payment Confirmed" ? (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-3 text-center shadow-sm">
+      <p className="text-xs font-black uppercase tracking-wide text-emerald-600">
+        Payment Verified
+      </p>
+
+      <p className="mt-1 font-black text-emerald-800">
+        ✓ Merchant Paid
+      </p>
+
+      {order.merchant_payment_confirmed_at && (
+        <p className="mt-1 text-[10px] font-bold text-emerald-600">
+          {new Date(
+            order.merchant_payment_confirmed_at
+          ).toLocaleString("en-PH")}
+        </p>
+      )}
+    </div>
+  ) : order.merchant_payment_status === "Proof Submitted" ? (
+    <button
+      type="button"
+      disabled={updatingId === order.id}
+      onClick={() => void confirmMerchantPayment(order)}
+      className="rounded-2xl bg-emerald-600 px-5 py-3 font-black text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {updatingId === order.id
+        ? "Confirming..."
+        : "✓ Confirm Merchant Payment"}
+    </button>
+  ) : (
+    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-3 text-center">
+      <p className="text-[10px] font-black uppercase tracking-wide text-blue-600">
+        Payment Status
+      </p>
+
+      <p className="mt-1 text-sm font-black text-blue-900">
+        {order.merchant_payment_status || "Waiting for Merchant QR"}
+      </p>
+    </div>
+  )}
+</div>
+
+      </div>
+    </div>
+  )}
+                  
 
                   {order.item_payment_flow === "rider_advance_cod" && status !== "Cancelled" && (
                     <div className="border-t border-amber-200 bg-amber-50 p-5 sm:p-6">
@@ -1044,25 +1216,34 @@ export default function RiderDashboardPage() {
                       </div>
 
                       <div className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
-                        <a
-                          href={mapsUrl(
-                            showPickupMap
-                              ? order.pickup_latitude
-                              : order.dropoff_latitude,
-                            showPickupMap
-                              ? order.pickup_longitude
-                              : order.dropoff_longitude,
-                            showPickupMap
-                              ? order.pickup_address
-                              : order.dropoff_address
-                          )}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-2xl border border-white/15 bg-white/10 px-5 py-4 text-center font-extrabold transition hover:bg-white/20"
-                        >
-                          📍 Open {showPickupMap ? "Pickup" : "Drop-off"} Maps
-                        </a>
-
+                        {bookingLocked ? (
+  <button
+    type="button"
+    disabled
+    className="cursor-not-allowed rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-center font-extrabold text-slate-500"
+  >
+    🔒 Map Locked
+  </button>
+) : (
+  <a
+    href={mapsUrl(
+      showPickupMap
+        ? order.pickup_latitude
+        : order.dropoff_latitude,
+      showPickupMap
+        ? order.pickup_longitude
+        : order.dropoff_longitude,
+      showPickupMap
+        ? order.pickup_address
+        : order.dropoff_address
+    )}
+    target="_blank"
+    rel="noreferrer"
+    className="rounded-2xl border border-white/15 bg-white/10 px-5 py-4 text-center font-extrabold transition hover:bg-white/20"
+  >
+    📍 Open {showPickupMap ? "Pickup" : "Drop-off"} Maps
+  </a>
+)}
                         {status === "In Transit" && (
                           <button
                             type="button"
@@ -1073,31 +1254,45 @@ export default function RiderDashboardPage() {
                           </button>
                         )}
 
+                       
+                      
                         {action && (
                           <div className="flex flex-col gap-2">
                             <button
                               type="button"
-                              disabled={
-                                      updatingId === order.id ||
-                                      (status === "Pending" && (!canAcceptOrder || gcashLocked))
-                                       }
+
+          disabled={
+                  updatingId === order.id ||
+                  merchantPaymentLocked ||
+                  riderAdvancePaymentLocked ||
+                   (status === "Pending" && (!canAcceptOrder || gcashLocked))
+                  }
                               onClick={() => updateOrder(order)}
+
                               title={
-                                      gcashLocked
-                                    ? "Waiting for GCash payment verification."
-                                     : status === "Pending" && !canAcceptOrder
-                                    ? "Complete your current delivery before accepting another booking."
-                                  : undefined
-                                 }
+                                merchantPaymentLocked
+                                ? "Merchant payment must be confirmed before starting delivery."
+                                : riderAdvancePaymentLocked
+                                ? "Confirm that the customer paid the COD amount before completing the order."
+                                : gcashLocked
+                                ? "Waiting for GCash payment verification."
+                                 : status === "Pending" && !canAcceptOrder
+                                ? "Complete your current delivery before accepting another booking."
+                                : undefined
+                                }
                               className="rounded-2xl bg-white px-5 py-4 font-black text-blue-950 transition hover:bg-sky-50 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600 disabled:opacity-100"
                             >
                               {updatingId === order.id
-                              ? "Updating..."
-                              : gcashLocked
-                              ? "💳 Waiting for Payment Verification"
-                               : status === "Pending" && !canAcceptOrder
-                              ? "🔒 Finish Current Delivery First"
-                              : action.label}
+                                  ? "Updating..."
+                                  : merchantPaymentLocked
+                                  ? "🔒 Confirm Merchant Payment First"
+                                  : riderAdvancePaymentLocked
+                                  ? "🔒 Confirm COD Payment First"             
+                                  : gcashLocked
+                                  ? "💳 Waiting for Payment Verification"
+                                  : status === "Pending" && !canAcceptOrder
+                                  ? "🔒 Finish Current Delivery First"
+                                  : action.label}
                             </button>
 
                             {status === "Pending" && !canAcceptOrder && (

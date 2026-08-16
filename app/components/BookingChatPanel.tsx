@@ -1,6 +1,11 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import {
+  ImagePlus,
+  QrCode,
+  ReceiptText,
+} from "lucide-react";
 
 type ChatRole = "customer" | "rider";
 
@@ -9,6 +14,13 @@ type ChatMessage = {
   sender_user_id: string | null;
   sender_role: ChatRole;
   message: string;
+
+  message_type: "text" | "image";
+  attachment_path: string | null;
+  attachment_name: string | null;
+  attachment_mime_type: string | null;
+  attachment_url: string | null;
+
   read_at: string | null;
   created_at: string;
 };
@@ -63,10 +75,16 @@ export default function BookingChatPanel({
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [data, setData] = useState<ChatResponse>({});
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadKindRef = useRef<
+  "merchant_qr" | "payment_proof" | "chat_image"
+>("chat_image");
 
   const load = useCallback(
     async (summaryOnly = false) => {
@@ -174,6 +192,71 @@ export default function BookingChatPanel({
     }
   }
 
+ function chooseImage(
+  kind: "merchant_qr" | "payment_proof" | "chat_image"
+) {
+  uploadKindRef.current = kind;
+  fileInputRef.current?.click();
+}
+
+async function uploadImage(file: File) {
+  if (uploading) return;
+
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    setError("JPG, PNG, or WEBP images only.");
+    return;
+  }
+
+  if (file.size > 5 * 1024 * 1024) {
+    setError("Image must be 5 MB or smaller.");
+    return;
+  }
+
+  setUploading(true);
+  setError("");
+
+  try {
+    const formData = new FormData();
+
+    formData.append("order_id", String(orderId));
+    formData.append("kind", uploadKindRef.current);
+    formData.append("file", file);
+
+    const response = await fetch("/api/chat/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = (await response.json()) as ChatResponse & {
+      message?: ChatMessage;
+    };
+
+    if (!response.ok || !result.success || !result.message) {
+      throw new Error(result.error || "Hindi ma-upload ang image.");
+    }
+
+    setData((current) => ({
+      ...current,
+      messages: [
+        ...(current.messages || []),
+        result.message as ChatMessage,
+      ],
+    }));
+  } catch (uploadError) {
+    setError(
+      uploadError instanceof Error
+        ? uploadError.message
+        : "Hindi ma-upload ang image."
+    );
+  } finally {
+    setUploading(false);
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+} 
+
   const unread = data.unread_count || 0;
   const contacts = [
     data.contacts?.rider,
@@ -269,9 +352,54 @@ export default function BookingChatPanel({
                           : "rounded-bl-md border border-slate-200 bg-white text-slate-900"
                       }`}
                     >
-                      <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-6">
-                        {message.message}
-                      </p>
+                     {message.message_type === "image" ? (
+  <div>
+    <div
+      className={`mb-2 flex items-center gap-2 text-xs font-black ${
+        mine ? "text-blue-100" : "text-slate-600"
+      }`}
+    >
+      {message.message === "Merchant payment QR" ? (
+        <QrCode className="h-4 w-4" />
+      ) : message.message === "Payment proof" ? (
+        <ReceiptText className="h-4 w-4" />
+      ) : (
+        <ImagePlus className="h-4 w-4" />
+      )}
+
+      <span>{message.message}</span>
+    </div>
+
+    {message.attachment_url ? (
+      <button
+        type="button"
+        onClick={() => setPreviewImage(message.attachment_url)}
+        className="block overflow-hidden rounded-xl bg-white"
+        title="View full image"
+      >
+        <img
+          src={message.attachment_url}
+          alt={message.message || "Chat attachment"}
+          className="max-h-72 w-auto max-w-full object-contain"
+        />
+      </button>
+    ) : (
+      <div
+        className={`rounded-xl px-4 py-3 text-xs font-bold ${
+          mine
+            ? "bg-blue-600 text-blue-100"
+            : "bg-slate-100 text-slate-500"
+        }`}
+      >
+        Image unavailable
+      </div>
+    )}
+  </div>
+) : (
+  <p className="whitespace-pre-wrap break-words text-sm font-semibold leading-6">
+    {message.message}
+  </p>
+)}
                       <p
                         className={`mt-1 text-[11px] ${
                           mine ? "text-blue-100" : "text-slate-400"
@@ -293,6 +421,66 @@ export default function BookingChatPanel({
               ⚠️ {error}
             </div>
           )}
+          
+          <input
+  ref={fileInputRef}
+  type="file"
+  accept="image/jpeg,image/png,image/webp"
+  className="hidden"
+  onChange={(event) => {
+    const file = event.target.files?.[0];
+
+    if (file) {
+      void uploadImage(file);
+    }
+  }}
+/>
+
+{data.chat_enabled && (
+  <div className="border-t border-slate-100 bg-white px-3 pt-3">
+    <div className="flex flex-wrap gap-2">
+
+      {role === "rider" && (
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => chooseImage("merchant_qr")}
+          className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-black text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <QrCode className="h-4 w-4" strokeWidth={2.3} />
+          {uploading ? "Uploading..." : "Send Merchant QR"}
+        </button>
+      )}
+
+      {role === "customer" && (
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => chooseImage("payment_proof")}
+          className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ReceiptText className="h-4 w-4" strokeWidth={2.3} />
+          {uploading ? "Uploading..." : "Send Payment Proof"}
+        </button>
+      )}
+
+      <button
+        type="button"
+        disabled={uploading}
+        onClick={() => chooseImage("chat_image")}
+        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-700 transition hover:border-blue-200 hover:bg-slate-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <ImagePlus className="h-4 w-4" strokeWidth={2.3} />
+        Send Photo
+      </button>
+
+    </div>
+
+    <p className="mt-2 text-[10px] font-semibold text-slate-400">
+      JPG, PNG or WEBP • Maximum 5 MB
+    </p>
+  </div>
+)}
 
           {data.chat_enabled ? (
             <form
@@ -323,6 +511,33 @@ export default function BookingChatPanel({
           )}
         </div>
       )}
+     
+     {previewImage && (
+  <div
+    className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/80 p-4 backdrop-blur-sm"
+    onClick={() => setPreviewImage(null)}
+  >
+    <div
+      className="relative max-h-[92vh] max-w-5xl"
+      onClick={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        onClick={() => setPreviewImage(null)}
+        className="absolute -right-2 -top-12 rounded-xl bg-white/10 px-4 py-2 text-sm font-black text-white backdrop-blur transition hover:bg-white/20"
+      >
+        ✕ Close
+      </button>
+
+      <img
+        src={previewImage}
+        alt="Chat attachment preview"
+        className="max-h-[85vh] max-w-full rounded-2xl bg-white object-contain shadow-2xl"
+      />
+    </div>
+  </div>
+)}
+
     </div>
   );
 }

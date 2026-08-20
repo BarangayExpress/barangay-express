@@ -6,7 +6,14 @@ export default async function RidersPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
-  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  if (!user.email || user.email.toLowerCase() !== adminEmail) redirect("/dashboard");
+  const { data: profile } = await supabase
+  .from("profiles")
+  .select("role, is_active")
+  .eq("id", user.id)
+  .maybeSingle();
+
+if (!profile?.is_active || profile.role !== "admin") {
+  redirect("/");
+}
   return <RidersClient />;
 }

@@ -11,21 +11,13 @@ export default async function DashboardPage() {
 
   if (!user) redirect("/login");
 
-  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
-  const currentEmail = user.email?.trim().toLowerCase();
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, is_active")
+    .eq("id", user.id)
+    .maybeSingle();
 
-  if (!adminEmail) {
-    throw new Error("ADMIN_EMAIL is missing in .env.local.");
-  }
-
-  if (!currentEmail || currentEmail !== adminEmail) {
-    const { data: riderProfile } = await supabase
-      .from("rider_profiles")
-      .select("id")
-      .eq("id", user.id)
-      .maybeSingle();
-
-    if (riderProfile) redirect("/rider/dashboard");
+  if (!profile?.is_active || profile.role !== "admin") {
     redirect("/");
   }
 

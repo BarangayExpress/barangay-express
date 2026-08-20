@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { requireAdmin } from "@/lib/require-role";
+import {
+  requireAdmin,
+  requireCustomer,
+} from "@/lib/require-role";
 
 type ReviewPayload = {
   booking_no?: string;
@@ -121,6 +124,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const authorization = await requireCustomer();
+
+    if (!authorization.authorized) {
+      return authorization.response;
+    }
+
     const body = (await request.json()) as ReviewPayload;
 
     const bookingNo = body.booking_no?.trim();
@@ -155,14 +164,20 @@ export async function POST(request: Request) {
 
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
-      .select("id, booking_no, assigned_rider, status")
+      .select(
+  "id, booking_no, assigned_rider, status, customer_user_id"
+)
+      
       .eq("booking_no", bookingNo)
       .maybeSingle<{
         id: number;
         booking_no: string;
         assigned_rider: string | null;
         status: string | null;
+        customer_user_id: string | null;
       }>();
+
+
 
     if (orderError) {
       throw new Error(orderError.message);
@@ -187,7 +202,16 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-
+   
+    if (order.customer_user_id !== authorization.userId) {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "You can only review your own completed booking.",
+    },
+    { status: 403 }
+  );
+}
     const { data: existingReview, error: existingReviewError } =
       await supabaseAdmin
         .from("delivery_reviews")
